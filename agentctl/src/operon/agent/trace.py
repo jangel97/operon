@@ -59,6 +59,7 @@ class ExecutionTrace:
             "status": self.status,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
+            "duration": self._duration(),
             "total_events": len(self.events),
             "events": [
                 {"type": e.type.value, "timestamp": e.timestamp, **e.data}

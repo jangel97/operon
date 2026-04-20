@@ -27,17 +27,44 @@ pip install -e .
 # Run an agent
 agentctl run examples/agent-ollama.yaml
 
-# Run with custom inputs
-agentctl run agent.yaml -i namespace=production
+# Override inputs (like ansible -e)
+agentctl run agent.yaml -e namespace=production
+agentctl run agent.yaml --set city="Barcelona, Spain"
+
+# Load inputs from a YAML file
+agentctl run agent.yaml --set-file vars.yaml
+
+# Both — file values are loaded first, CLI overrides take precedence
+agentctl run agent.yaml --set-file defaults.yaml -e namespace=staging
 
 # Dry run — simulate without executing actions
 agentctl run agent.yaml --dry-run
+
+# JSON output — machine-readable trace for automation
+agentctl run agent.yaml -o json
+agentctl run agent.yaml -o json | jq .status
 
 # Validate a spec without running
 agentctl validate agent.yaml
 
 # Show version
 agentctl version
+```
+
+## Exit Codes
+
+Meaningful exit codes for scripting and automation:
+
+| Code | Status | Description |
+|------|--------|-------------|
+| `0` | `completed` | Agent achieved its goal |
+| `1` | — | Generic error (bad spec, missing file, invalid inputs) |
+| `2` | `failed` | Agent failure (LLM error, tool error, connection timeout) |
+| `3` | `policy_denied` | Agent blocked by policy |
+| `4` | `max_iterations` | Agent hit the iteration limit without completing |
+
+```bash
+agentctl run agent.yaml && echo "done" || echo "failed: $?"
 ```
 
 ## Agent Spec
@@ -64,7 +91,7 @@ spec:
     model: qwen3:14b
     base_url: http://host:11434/v1  # optional, for remote Ollama
 
-  # Runtime inputs (can be overridden with -i flag)
+  # Runtime inputs (override with --set/-e or --set-file)
   inputs:
     namespace:
       type: string
@@ -167,6 +194,26 @@ Every run produces a trace table showing what happened:
 ```
 
 Event types: `DECISION`, `POLICY_CHECK`, `APPROVAL`, `ACTION`, `RESULT`, `ERROR`, `DONE`
+
+### JSON output
+
+Use `--output json` / `-o json` for machine-readable traces (for piping to a control plane, logging system, or CI):
+
+```bash
+agentctl run agent.yaml -o json
+```
+
+```json
+{
+  "agent": "app-health-recovery",
+  "status": "completed",
+  "started_at": "2026-04-20T20:06:09.000+00:00",
+  "finished_at": "2026-04-20T20:06:25.000+00:00",
+  "duration": "16.0s",
+  "total_events": 9,
+  "events": [...]
+}
+```
 
 ## Policy Modes
 

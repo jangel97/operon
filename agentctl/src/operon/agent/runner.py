@@ -7,16 +7,18 @@ from rich.console import Console
 
 from operon.agent.loop import AgentLoop
 from operon.agent.spec import AgentDefinition
+from operon.agent.trace import ExecutionTrace
 from operon.decision import create_provider
 from operon.policy.engine import PolicyEngine
 from operon.tools import create_tool
 from operon.tools.base import ToolRegistry
 
-console = Console()
-
 
 class AgentRunner:
-    def run(self, spec_path: str, inputs: dict | None = None, dry_run: bool = False) -> list[dict]:
+    def __init__(self, console: Console | None = None) -> None:
+        self.console = console or Console()
+
+    def run(self, spec_path: str, inputs: dict | None = None, dry_run: bool = False) -> ExecutionTrace:
         path = Path(spec_path)
         if not path.exists():
             raise FileNotFoundError(f"Agent spec not found: {spec_path}")
@@ -25,13 +27,13 @@ class AgentRunner:
         definition = AgentDefinition(**raw)
         spec = definition.spec
 
-        console.print(f"[bold]Agent:[/] {definition.metadata.name} ({definition.metadata.version})")
-        console.print(f"[bold]Mode:[/] {spec.policy.mode}")
-        console.print(f"[bold]Provider:[/] {spec.decision.provider}/{spec.decision.model}")
+        self.console.print(f"[bold]Agent:[/] {definition.metadata.name} ({definition.metadata.version})")
+        self.console.print(f"[bold]Mode:[/] {spec.policy.mode}")
+        self.console.print(f"[bold]Provider:[/] {spec.decision.provider}/{spec.decision.model}")
 
         resolved_inputs = self._resolve_inputs(spec, inputs)
         if resolved_inputs:
-            console.print(f"[bold]Inputs:[/] {resolved_inputs}")
+            self.console.print(f"[bold]Inputs:[/] {resolved_inputs}")
 
         provider_kwargs = {"model": spec.decision.model}
         if spec.decision.base_url:
@@ -51,6 +53,7 @@ class AgentRunner:
             policy_engine=policy_engine,
             agent_name=definition.metadata.name,
             dry_run=dry_run,
+            console=self.console,
         )
 
         return loop.run()

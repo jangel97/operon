@@ -7,7 +7,7 @@ metadata:
 
 spec:
   goal: |
-    Find the weather forecast for tomorrow in Tarragona, Spain.
+    Find the weather forecast for tomorrow in {{city}}.
     First search the web, then fetch the most relevant result page
     to get exact temperatures, conditions, and any weather alerts.
     Summarize the forecast clearly when done.
@@ -16,9 +16,12 @@ spec:
     type: llm
     provider: ollama
     model: qwen3:14b
-    base_url: http://192.168.1.137:11434/v1
+    base_url: http://192.168.1.136:11434/v1
 
-  inputs: {}
+  inputs:
+    city:
+      type: string
+      default: "Tarragona, Spain"
 
   tools:
     - name: websearch

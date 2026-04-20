@@ -11,8 +11,6 @@ from operon.decision.base import LLMProvider
 from operon.policy.engine import PolicyEngine
 from operon.tools.base import ToolRegistry
 
-console = Console()
-
 MAX_ITERATIONS = 20
 
 
@@ -25,12 +23,14 @@ class AgentLoop:
         policy_engine: PolicyEngine,
         agent_name: str = "unknown",
         dry_run: bool = False,
+        console: Console | None = None,
     ) -> None:
         self.goal = goal
         self.decision_engine = decision_engine
         self.tool_registry = tool_registry
         self.policy_engine = policy_engine
         self.dry_run = dry_run
+        self.console = console or Console()
         self.history: list[dict] = []
         self.trace = ExecutionTrace(agent_name=agent_name)
 
@@ -38,29 +38,29 @@ class AgentLoop:
         self.trace.start()
 
         if self.dry_run:
-            console.print(Panel("[bold yellow]DRY RUN[/] — no actions will be executed", border_style="yellow"))
+            self.console.print(Panel("[bold yellow]DRY RUN[/] — no actions will be executed", border_style="yellow"))
 
-        console.print(Panel(self.goal, title="Goal", border_style="green"))
+        self.console.print(Panel(self.goal, title="Goal", border_style="green"))
 
         available_actions = self.tool_registry.get_actions()
 
         for iteration in range(1, MAX_ITERATIONS + 1):
-            console.print(f"\n[bold]--- Step {iteration} ---[/]")
+            self.console.print(f"\n[bold]--- Step {iteration} ---[/]")
 
             # 1. Decide
-            console.print("[dim]Thinking...[/]")
+            self.console.print("[dim]Thinking...[/]")
             try:
                 decision = self.decision_engine.decide(
                     self.goal, available_actions, self.history
                 )
             except Exception as e:
-                console.print(f"[bold red]Decision engine error:[/] {e}")
+                self.console.print(f"[bold red]Decision engine error:[/] {e}")
                 self.trace.record(EventType.ERROR, error=str(e))
                 self.trace.finish("failed")
                 break
 
             if decision.done:
-                console.print(
+                self.console.print(
                     Panel(decision.summary, title="Completed", border_style="green")
                 )
                 self.trace.record(EventType.DONE, summary=decision.summary)
@@ -68,11 +68,11 @@ class AgentLoop:
                 break
 
             action = decision.action
-            console.print(f"[bold yellow]Action:[/] {action.action}")
-            console.print(f"[dim]Reasoning:[/] {action.reasoning}")
-            console.print(f"[dim]Confidence:[/] {action.confidence}")
+            self.console.print(f"[bold yellow]Action:[/] {action.action}")
+            self.console.print(f"[dim]Reasoning:[/] {action.reasoning}")
+            self.console.print(f"[dim]Confidence:[/] {action.confidence}")
             if action.params:
-                console.print(f"[dim]Params:[/] {json.dumps(action.params)}")
+                self.console.print(f"[dim]Params:[/] {json.dumps(action.params)}")
 
             self.trace.record(
                 EventType.DECISION,
@@ -94,7 +94,7 @@ class AgentLoop:
             )
 
             if not policy_result.allowed:
-                console.print(f"[bold red]Policy DENIED:[/] {policy_result.reason}")
+                self.console.print(f"[bold red]Policy DENIED:[/] {policy_result.reason}")
                 self.history.append({
                     "action": action.action,
                     "params": action.params,
@@ -105,7 +105,7 @@ class AgentLoop:
             # 3. Approval
             if policy_result.requires_approval:
                 if self.dry_run:
-                    console.print("[bold magenta]Approval required[/] — [yellow]auto-skipped (dry run)[/]")
+                    self.console.print("[bold magenta]Approval required[/] — [yellow]auto-skipped (dry run)[/]")
                     self.trace.record(EventType.APPROVAL, approved=False, dry_run=True)
                     self.history.append({
                         "action": action.action,
@@ -114,11 +114,11 @@ class AgentLoop:
                     })
                     continue
                 else:
-                    console.print("[bold magenta]Approval required.[/]")
+                    self.console.print("[bold magenta]Approval required.[/]")
                     approved = Confirm.ask("  Approve this action?")
                     self.trace.record(EventType.APPROVAL, approved=approved)
                     if not approved:
-                        console.print("[yellow]Rejected by operator.[/]")
+                        self.console.print("[yellow]Rejected by operator.[/]")
                         self.history.append({
                             "action": action.action,
                             "params": action.params,
@@ -129,11 +129,11 @@ class AgentLoop:
             # 4. Execute
             if self.dry_run:
                 result = f"[DRY RUN] Would execute: {action.action}({json.dumps(action.params)})"
-                console.print(f"[yellow]{result}[/]")
+                self.console.print(f"[yellow]{result}[/]")
                 self.trace.record(EventType.ACTION, action=action.action, params=action.params, dry_run=True)
                 self.trace.record(EventType.RESULT, result=result)
             else:
-                console.print("[blue]Executing...[/]")
+                self.console.print("[blue]Executing...[/]")
                 self.trace.record(EventType.ACTION, action=action.action, params=action.params)
                 try:
                     result = self.tool_registry.execute(action.action, action.params)
@@ -142,7 +142,7 @@ class AgentLoop:
                     self.trace.record(EventType.ERROR, error=str(e))
 
                 self.policy_engine.record_action()
-                console.print(f"[green]Result:[/]\n{result}")
+                self.console.print(f"[green]Result:[/]\n{result}")
                 self.trace.record(EventType.RESULT, result=result)
 
             self.history.append({
@@ -151,10 +151,10 @@ class AgentLoop:
                 "result": result,
             })
         else:
-            console.print(
+            self.console.print(
                 f"[bold red]Max iterations ({MAX_ITERATIONS}) reached. Stopping.[/]"
             )
             self.trace.finish("max_iterations")
 
-        self.trace.print_summary(console)
+        self.trace.print_summary(self.console)
         return self.trace
