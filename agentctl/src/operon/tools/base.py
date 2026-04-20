@@ -22,21 +22,34 @@ class Tool(ABC):
 class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
-        self._action_index: dict[str, Tool] = {}
+        self._action_index: dict[str, tuple[Tool, str]] = {}
+        self._action_meta: dict[str, dict] = {}
 
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
         for action in tool.actions():
-            self._action_index[action["name"]] = tool
+            fqn = f"{tool.name}:{action['name']}"
+            self._action_index[fqn] = (tool, action["name"])
+            self._action_meta[fqn] = {**action, "name": fqn}
 
-    def get_actions(self) -> list[dict]:
-        all_actions: list[dict] = []
-        for tool in self._tools.values():
-            all_actions.extend(tool.actions())
-        return all_actions
+    def get_actions(
+        self,
+        allowed: list[str] | None = None,
+        policy_mode: str = "autonomous",
+    ) -> list[dict]:
+        actions = list(self._action_meta.values())
+        if allowed:
+            actions = [a for a in actions if a["name"] in allowed]
+        if policy_mode == "read_only":
+            actions = [a for a in actions if a.get("type", "read") != "write"]
+        return actions
+
+    def get_action_meta(self, action: str) -> dict:
+        return self._action_meta.get(action, {})
 
     def execute(self, action: str, params: dict) -> str:
-        tool = self._action_index.get(action)
-        if not tool:
+        entry = self._action_index.get(action)
+        if not entry:
             raise ValueError(f"Unknown action: '{action}'")
-        return tool.execute(action, params)
+        tool, local_name = entry
+        return tool.execute(local_name, params)

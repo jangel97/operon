@@ -1,0 +1,44 @@
+apiVersion: agents/v1
+kind: Agent
+
+metadata:
+  name: k8s-investigator
+  version: v1
+
+spec:
+  goal: |
+    Investigate the health of namespace "{{namespace}}".
+    List pods, check for any that are not Running/Completed,
+    and get logs or describe any unhealthy pods.
+    Summarize your findings when done.
+
+  decision:
+    type: llm
+    provider: ollama
+    model: qwen3:14b
+    base_url: http://192.168.1.136:11434/v1
+
+  inputs:
+    namespace:
+      type: string
+      default: default
+
+  tools:
+    - name: kubectl
+      type: kubectl
+
+  policy:
+    mode: autonomous
+
+    # Single source of truth — namespaced actions
+    allowed_actions:
+      - kubectl:get_pods
+      - kubectl:describe_pod
+      - kubectl:get_logs
+      - kubectl:get_events
+      - kubectl:get_deployments
+      - kubectl:describe_deployment
+      - kubectl:get_services
+
+    constraints:
+      max_actions: 10

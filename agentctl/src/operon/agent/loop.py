@@ -44,7 +44,10 @@ class AgentLoop:
 
         self.console.print(Panel(self.goal, title="Goal", border_style="green"))
 
-        available_actions = self.tool_registry.get_actions()
+        available_actions = self.tool_registry.get_actions(
+            allowed=self.policy_engine.policy.allowed_actions or None,
+            policy_mode=self.policy_engine.policy.mode,
+        )
 
         for iteration in range(1, MAX_ITERATIONS + 1):
             self.console.print(f"\n[bold]--- Step {iteration} ---[/]")
@@ -85,7 +88,8 @@ class AgentLoop:
             )
 
             # 2. Policy check
-            policy_result = self.policy_engine.check(action.action)
+            action_meta = self.tool_registry.get_action_meta(action.action)
+            policy_result = self.policy_engine.check(action.action, action.params, action_meta)
 
             self.trace.record(
                 EventType.POLICY_CHECK,

@@ -20,6 +20,7 @@ class InputSpec(BaseModel):
 class ToolSpec(BaseModel):
     name: str
     type: str
+    config: dict[str, Any] = {}
 
 
 class TriggerSpec(BaseModel):
@@ -33,6 +34,7 @@ class ExecutionSpec(BaseModel):
 
 class ConstraintsSpec(BaseModel):
     max_actions: int = 10
+    denied_patterns: list[str] = []
 
 
 class PolicySpec(BaseModel):

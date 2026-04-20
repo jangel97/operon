@@ -1,0 +1,15 @@
+[project]
+name = "operon-tool-kubectl"
+version = "0.1.0"
+description = "Operon tool — run kubectl commands with policy guardrails"
+requires-python = ">=3.11"
+dependencies = [
+    "operon>=0.1.0",
+]
+
+[project.entry-points."operon.tools"]
+kubectl = "operon_tool_kubectl:KubectlTool"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -31,8 +31,8 @@ spec:
     mode: autonomous
 
     allowed_actions:
-      - web_search
-      - web_fetch
+      - websearch:web_search
+      - websearch:web_fetch
 
     constraints:
       max_actions: 5

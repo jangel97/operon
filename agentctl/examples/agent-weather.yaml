@@ -27,9 +27,9 @@ spec:
     mode: autonomous
 
     allowed_actions:
-      - get_current_weather
-      - get_forecast
-      - get_alerts
+      - weather:get_current_weather
+      - weather:get_forecast
+      - weather:get_alerts
 
     constraints:
       max_actions: 5

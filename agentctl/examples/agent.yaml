@@ -29,8 +29,8 @@ spec:
     mode: approval_required
 
     allowed_actions:
-      - list_pods
-      - restart_pod
+      - k8s:list_pods
+      - k8s:restart_pod
 
     constraints:
       max_actions: 5

@@ -44,6 +44,10 @@ agentctl run agent.yaml --dry-run
 agentctl run agent.yaml -o json
 agentctl run agent.yaml -o json | jq .status
 
+# NDJSON streaming — real-time events for control planes
+agentctl run agent.yaml -o ndjson
+agentctl run agent.yaml -o ndjson | jq 'select(.type == "DECISION")'
+
 # Validate a spec without running
 agentctl validate agent.yaml
 
@@ -97,21 +101,23 @@ spec:
       type: string
       default: default
 
-  # Tools the agent can use
+  # Tools the agent can use (tools define CAPABILITY)
   tools:
-    - name: kubernetes
-      type: k8s
+    - name: kubectl
+      type: kubectl
 
-  # Policy — what the agent is allowed to do
+  # Policy — what the agent is allowed to do (policy defines PERMISSIONS)
   policy:
     mode: approval_required       # approval_required | autonomous | read_only
 
-    allowed_actions:              # whitelist of permitted actions
-      - list_pods
-      - restart_pod
+    allowed_actions:              # whitelist of permitted actions (namespaced)
+      - kubectl:get_pods
+      - kubectl:describe_pod
+      - kubectl:get_logs
 
     constraints:
       max_actions: 5              # hard limit on total actions per run
+      denied_patterns: []         # regex patterns to block (defense in depth)
 ```
 
 ### Spec Reference
@@ -123,10 +129,11 @@ spec:
 | `spec.decision.model` | Model name (e.g., `gpt-4o-mini`, `qwen3:14b`) |
 | `spec.decision.base_url` | Optional base URL for the LLM API |
 | `spec.inputs` | Key-value inputs with types and optional defaults |
-| `spec.tools` | List of tool types the agent can use |
-| `spec.policy.mode` | `approval_required` (human approves each action), `autonomous` (no approval), `read_only` (future) |
-| `spec.policy.allowed_actions` | Whitelist of actions the agent may execute |
+| `spec.tools` | List of tool types the agent can use (tools define capability) |
+| `spec.policy.mode` | `approval_required` (human approves each action), `autonomous` (no approval), `read_only` (blocks write operations) |
+| `spec.policy.allowed_actions` | Whitelist of namespaced actions the agent may execute (e.g., `kubectl:get_pods`) |
 | `spec.policy.constraints.max_actions` | Maximum number of actions per run |
+| `spec.policy.constraints.denied_patterns` | Regex patterns to block in command params |
 
 ## LLM Providers
 
@@ -165,7 +172,7 @@ The LLM returns structured decisions:
 ```json
 {
   "done": false,
-  "action": "restart_pod",
+  "action": "kubectl:restart_pod",
   "params": {"name": "pod-api-2", "namespace": "default"},
   "reasoning": "Pod is in CrashLoopBackOff with 5 restarts",
   "confidence": 0.95
@@ -185,10 +192,10 @@ Every run produces a trace table showing what happened:
 
 ```
  #  Type           Timestamp                  Details
- 1  DECISION       2026-04-20T20:06:09.569    list_pods — identify failing pods (confidence: 1.0)
+ 1  DECISION       2026-04-20T20:06:09.569    kubectl:get_pods — identify failing pods (confidence: 1.0)
  2  POLICY_CHECK   2026-04-20T20:06:09.569    ALLOWED (approval required)
  3  APPROVAL       2026-04-20T20:06:21.661    approved
- 4  ACTION         2026-04-20T20:06:21.662    list_pods({'namespace': 'default'})
+ 4  ACTION         2026-04-20T20:06:21.662    kubectl:get_pods({'namespace': 'default'})
  5  RESULT         2026-04-20T20:06:21.664    Pods in namespace 'default': ...
  ...
 ```
@@ -197,7 +204,7 @@ Event types: `DECISION`, `POLICY_CHECK`, `APPROVAL`, `ACTION`, `RESULT`, `ERROR`
 
 ### JSON output
 
-Use `--output json` / `-o json` for machine-readable traces (for piping to a control plane, logging system, or CI):
+Use `-o json` for a complete trace after the run finishes:
 
 ```bash
 agentctl run agent.yaml -o json
@@ -215,13 +222,33 @@ agentctl run agent.yaml -o json
 }
 ```
 
+### NDJSON streaming
+
+Use `-o ndjson` for real-time event streaming (one JSON object per line). Events are emitted as they happen — ideal for control planes, dashboards, and log aggregation:
+
+```bash
+agentctl run agent.yaml -o ndjson
+```
+
+```
+{"type": "START", "agent": "researcher", "timestamp": "2026-04-20T22:04:12.828+00:00"}
+{"type": "DECISION", "timestamp": "...", "action": "websearch:web_search", "reasoning": "...", "confidence": 0.9}
+{"type": "POLICY_CHECK", "timestamp": "...", "action": "websearch:web_search", "allowed": true}
+{"type": "ACTION", "timestamp": "...", "action": "websearch:web_search", "params": {"query": "..."}}
+{"type": "RESULT", "timestamp": "...", "result": "..."}
+{"type": "DONE", "timestamp": "...", "summary": "..."}
+{"type": "FINISH", "agent": "researcher", "status": "completed", "duration": "13.7s", "total_events": 9}
+```
+
 ## Policy Modes
 
 | Mode | Behavior |
 |------|----------|
 | `approval_required` | Every action requires human approval (y/n prompt) |
 | `autonomous` | Actions execute without approval |
-| `read_only` | Planned — only allow read operations |
+| `read_only` | Blocks write operations, allows read-only actions |
+
+Tools tag their operations as `read` or `write`. The policy engine enforces this automatically — a `read_only` agent can never execute a write operation, regardless of what the LLM decides.
 
 ## Architecture
 
@@ -265,18 +292,43 @@ Tools are **separate pip packages** — agentctl ships with no tools bundled. It
 operon/
 ├── agentctl/                        # runtime (no tools)
 └── tools/
-    └── operon-tool-k8s/             # separate package
+    ├── operon-tool-kubectl/         # Kubernetes (real kubectl)
+    ├── operon-tool-websearch/       # Web search + fetch
+    └── operon-tool-weather/         # Weather (mock)
 ```
 
 ### Installing a tool
 
 ```bash
-pip install operon-tool-k8s
-# or from source:
-pip install -e tools/operon-tool-k8s
+pip install -e tools/operon-tool-kubectl
 ```
 
 Once installed, agentctl discovers it automatically — no configuration needed.
+
+### Namespaced actions
+
+Actions are namespaced as `tool:operation`. Tools define **capability** (what operations exist), policy defines **permissions** (which operations this agent can use). This is the single source of truth — no duplicated control.
+
+```yaml
+tools:
+  - name: kubectl
+    type: kubectl              # tool defines all its operations
+
+policy:
+  allowed_actions:             # policy controls which ones this agent can use
+    - kubectl:get_pods
+    - kubectl:describe_pod
+    - kubectl:get_logs
+```
+
+The LLM decides:
+```json
+{"action": "kubectl:get_pods", "params": {"namespace": "production"}}
+```
+
+The tool executes: `kubectl get pods -n production -o json`
+
+Operations are tagged as `read` or `write`. Write operations are **never exposed** unless explicitly listed in `allowed_actions`.
 
 ### Creating a new tool
 
@@ -305,6 +357,7 @@ class AwsTool(Tool):
         return [
             {
                 "name": "list_instances",
+                "type": "read",
                 "description": "List EC2 instances",
                 "params": {"region": "string"},
             },
