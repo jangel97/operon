@@ -1,0 +1,16 @@
+[project]
+name = "operon-tool-websearch"
+version = "0.1.0"
+description = "Operon tool — Web search via DuckDuckGo"
+requires-python = ">=3.11"
+dependencies = [
+    "operon>=0.1.0",
+    "ddgs>=9.0.0",
+]
+
+[project.entry-points."operon.tools"]
+websearch = "operon_tool_websearch:WebSearchTool"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

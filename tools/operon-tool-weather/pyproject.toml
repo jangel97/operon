@@ -1,0 +1,15 @@
+[project]
+name = "operon-tool-weather"
+version = "0.1.0"
+description = "Operon tool — Weather information (mock)"
+requires-python = ">=3.11"
+dependencies = [
+    "operon>=0.1.0",
+]
+
+[project.entry-points."operon.tools"]
+weather = "operon_tool_weather:WeatherTool"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

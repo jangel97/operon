@@ -96,14 +96,19 @@ class LLMProvider(ABC):
 
 
 def _extract_json(text: str) -> dict:
-    text = text.strip()
+    text = re.sub(r"<[^>]+>.*?</[^>]+>", "", text, flags=re.DOTALL).strip()
 
     fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if fence:
         return json.loads(fence.group(1))
 
-    brace = re.search(r"\{.*\}", text, re.DOTALL)
-    if brace:
-        return json.loads(brace.group(0))
+    for match in re.finditer(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text):
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            continue
 
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return {"done": True, "summary": text}

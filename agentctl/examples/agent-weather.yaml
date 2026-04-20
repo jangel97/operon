@@ -1,0 +1,35 @@
+apiVersion: agents/v1
+kind: Agent
+
+metadata:
+  name: weather-checker
+  version: v1
+
+spec:
+  goal: |
+    Find out the weather forecast for tomorrow in Madrid, Spain.
+    Check current conditions, get the forecast, and check for any
+    weather alerts. Summarize findings when done.
+
+  decision:
+    type: llm
+    provider: ollama
+    model: qwen3:14b
+    base_url: http://192.168.1.136:11434/v1
+
+  inputs: {}
+
+  tools:
+    - name: weather
+      type: weather
+
+  policy:
+    mode: autonomous
+
+    allowed_actions:
+      - get_current_weather
+      - get_forecast
+      - get_alerts
+
+    constraints:
+      max_actions: 5

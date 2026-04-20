@@ -1,0 +1,35 @@
+apiVersion: agents/v1
+kind: Agent
+
+metadata:
+  name: tarragona-weather
+  version: v1
+
+spec:
+  goal: |
+    Find the weather forecast for tomorrow in Tarragona, Spain.
+    First search the web, then fetch the most relevant result page
+    to get exact temperatures, conditions, and any weather alerts.
+    Summarize the forecast clearly when done.
+
+  decision:
+    type: llm
+    provider: ollama
+    model: qwen3:14b
+    base_url: http://192.168.1.137:11434/v1
+
+  inputs: {}
+
+  tools:
+    - name: websearch
+      type: websearch
+
+  policy:
+    mode: autonomous
+
+    allowed_actions:
+      - web_search
+      - web_fetch
+
+    constraints:
+      max_actions: 5
