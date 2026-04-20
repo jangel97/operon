@@ -1,0 +1,41 @@
+apiVersion: agents/v1
+kind: Agent
+
+metadata:
+  name: app-health-recovery
+  version: v1
+
+spec:
+  goal: |
+    Detect application failures in the Kubernetes namespace and recover safely.
+    First list pods to identify any failing pods, then restart any pod that is
+    in CrashLoopBackOff state.
+
+  decision:
+    type: llm
+    provider: openai
+    model: gpt-4o-mini
+
+  inputs:
+    namespace:
+      type: string
+      default: default
+
+  tools:
+    - name: kubernetes
+      type: k8s
+
+  policy:
+    mode: approval_required
+
+    allowed_actions:
+      - list_pods
+      - restart_pod
+
+    constraints:
+      max_actions: 5
+
+  execution:
+    trigger:
+      type: cron
+      schedule: "*/2 * * * *"

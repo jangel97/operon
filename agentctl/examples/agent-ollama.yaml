@@ -1,0 +1,42 @@
+apiVersion: agents/v1
+kind: Agent
+
+metadata:
+  name: app-health-recovery
+  version: v1
+
+spec:
+  goal: |
+    Detect application failures in the Kubernetes namespace and recover safely.
+    First list pods to identify any failing pods, then restart any pod that is
+    in CrashLoopBackOff state.
+
+  decision:
+    type: llm
+    provider: ollama
+    model: qwen3:14b
+    base_url: http://192.168.1.137:11434/v1
+
+  inputs:
+    namespace:
+      type: string
+      default: default
+
+  tools:
+    - name: kubernetes
+      type: k8s
+
+  policy:
+    mode: approval_required
+
+    allowed_actions:
+      - list_pods
+      - restart_pod
+
+    constraints:
+      max_actions: 5
+
+  execution:
+    trigger:
+      type: cron
+      schedule: "*/2 * * * *"
