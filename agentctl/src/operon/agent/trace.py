@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -37,21 +38,33 @@ class ExecutionTrace:
     finished_at: str = ""
     events: list[TraceEvent] = field(default_factory=list)
     status: str = "pending"
+    on_event: Callable[[dict], None] | None = None
 
     def start(self) -> None:
         self.started_at = TraceEvent.now()
         self.status = "running"
+        self._emit({"type": "START", "agent": self.agent_name, "timestamp": self.started_at})
 
     def finish(self, status: str = "completed") -> None:
         self.finished_at = TraceEvent.now()
         self.status = status
+        self._emit({
+            "type": "FINISH",
+            "agent": self.agent_name,
+            "status": self.status,
+            "timestamp": self.finished_at,
+            "duration": self._duration(),
+            "total_events": len(self.events),
+        })
 
     def record(self, event_type: EventType, **data: Any) -> None:
-        self.events.append(TraceEvent(
-            type=event_type,
-            timestamp=TraceEvent.now(),
-            data=data,
-        ))
+        event = TraceEvent(type=event_type, timestamp=TraceEvent.now(), data=data)
+        self.events.append(event)
+        self._emit({"type": event.type.value, "timestamp": event.timestamp, **event.data})
+
+    def _emit(self, payload: dict) -> None:
+        if self.on_event:
+            self.on_event(payload)
 
     def to_dict(self) -> dict:
         return {

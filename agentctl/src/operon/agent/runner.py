@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import yaml
@@ -15,8 +16,13 @@ from operon.tools.base import ToolRegistry
 
 
 class AgentRunner:
-    def __init__(self, console: Console | None = None) -> None:
+    def __init__(
+        self,
+        console: Console | None = None,
+        on_event: Callable[[dict], None] | None = None,
+    ) -> None:
         self.console = console or Console()
+        self.on_event = on_event
 
     def run(self, spec_path: str, inputs: dict | None = None, dry_run: bool = False) -> ExecutionTrace:
         path = Path(spec_path)
@@ -54,6 +60,7 @@ class AgentRunner:
             agent_name=definition.metadata.name,
             dry_run=dry_run,
             console=self.console,
+            on_event=self.on_event,
         )
 
         return loop.run()

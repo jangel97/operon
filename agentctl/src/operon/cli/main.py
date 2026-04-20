@@ -43,7 +43,7 @@ def run(
         None, "--set-file", help="Load input values from a YAML file",
     ),
     output: str = typer.Option(
-        "rich", "--output", "-o", help="Output format: rich or json",
+        "rich", "--output", "-o", help="Output format: rich, json, or ndjson",
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Simulate the full loop without executing actions",
@@ -56,8 +56,12 @@ def run(
 
     from operon.agent.runner import AgentRunner
 
-    quiet = output == "json"
+    quiet = output in ("json", "ndjson")
     console = Console(quiet=quiet)
+
+    on_event = None
+    if output == "ndjson":
+        on_event = _ndjson_emitter
 
     inputs: dict[str, str] = {}
 
@@ -79,13 +83,13 @@ def run(
             inputs[key] = value
 
     try:
-        runner = AgentRunner(console=console)
+        runner = AgentRunner(console=console, on_event=on_event)
         trace = runner.run(spec, inputs if inputs else None, dry_run=dry_run)
     except Exception as e:
         _error(console, quiet, str(e))
         raise typer.Exit(ExitCode.ERROR)
 
-    if quiet:
+    if output == "json":
         json.dump(trace.to_dict(), sys.stdout, indent=2)
         print()
 
@@ -115,6 +119,11 @@ def validate(
 def version() -> None:
     """Show agentctl version."""
     Console().print(f"agentctl v{__version__}")
+
+
+def _ndjson_emitter(event: dict) -> None:
+    json.dump(event, sys.stdout, default=str)
+    print(flush=True)
 
 
 def _error(console: Console, quiet: bool, message: str) -> None:

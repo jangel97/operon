@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 
 from rich.console import Console
 from rich.panel import Panel
@@ -24,6 +25,7 @@ class AgentLoop:
         agent_name: str = "unknown",
         dry_run: bool = False,
         console: Console | None = None,
+        on_event: Callable[[dict], None] | None = None,
     ) -> None:
         self.goal = goal
         self.decision_engine = decision_engine
@@ -32,7 +34,7 @@ class AgentLoop:
         self.dry_run = dry_run
         self.console = console or Console()
         self.history: list[dict] = []
-        self.trace = ExecutionTrace(agent_name=agent_name)
+        self.trace = ExecutionTrace(agent_name=agent_name, on_event=on_event)
 
     def run(self) -> ExecutionTrace:
         self.trace.start()
