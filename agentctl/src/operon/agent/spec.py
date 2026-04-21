@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel
+
+
+class PolicyMode(StrEnum):
+    AUTONOMOUS = "autonomous"
+    APPROVAL_REQUIRED = "approval_required"
+    READ_ONLY = "read_only"
 
 
 class DecisionSpec(BaseModel):
@@ -38,7 +45,7 @@ class ConstraintsSpec(BaseModel):
 
 
 class PolicySpec(BaseModel):
-    mode: str = "approval_required"
+    mode: PolicyMode = PolicyMode.APPROVAL_REQUIRED
     allowed_actions: list[str] = []
     constraints: ConstraintsSpec = ConstraintsSpec()
 

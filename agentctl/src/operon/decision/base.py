@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
@@ -51,13 +50,15 @@ class LLMProvider(ABC):
             '  "summary": "what was accomplished"\n'
             "}\n\n"
             "Rules:\n"
+            "- You MUST use the available actions to accomplish the goal\n"
+            "- Do NOT answer from your own knowledge — use actions to gather information first\n"
             "- Only use actions from the available list\n"
             "- Use the minimum number of actions needed\n"
-            "- When the goal is achieved, declare done\n"
+            "- When the goal is achieved, declare done with a summary\n"
             "- If an action was denied or rejected, adapt your plan\n"
             "- confidence: 1.0 = certain this is the right action, "
             "0.5 = unsure, 0.0 = guessing\n"
-            "- Respond with ONLY valid JSON, no markdown, no explanation\n"
+            "- Respond with ONLY valid JSON, no markdown, no explanation, no thinking\n"
         )
 
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
@@ -96,7 +97,7 @@ class LLMProvider(ABC):
 
 
 def _extract_json(text: str) -> dict:
-    text = re.sub(r"<[^>]+>.*?</[^>]+>", "", text, flags=re.DOTALL).strip()
+    import re
 
     fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if fence:

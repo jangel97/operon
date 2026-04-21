@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from operon.agent.spec import PolicySpec
+from operon.agent.spec import PolicyMode, PolicySpec
 
 
 @dataclass
@@ -41,7 +41,7 @@ class PolicyEngine:
 
         action_type = (action_meta or {}).get("type", "read")
 
-        if self.policy.mode == "read_only" and action_type == "write":
+        if self.policy.mode == PolicyMode.READ_ONLY and action_type == "write":
             return PolicyResult(
                 allowed=False,
                 reason=f"Action '{action}' is a write operation (policy mode: read_only)",
@@ -56,8 +56,8 @@ class PolicyEngine:
                         reason=f"Command matches denied pattern: {pattern.pattern}",
                     )
 
-        requires_approval = self.policy.mode == "approval_required"
-        if not requires_approval and action_type == "write" and self.policy.mode != "autonomous":
+        requires_approval = self.policy.mode == PolicyMode.APPROVAL_REQUIRED
+        if not requires_approval and action_type == "write" and self.policy.mode != PolicyMode.AUTONOMOUS:
             requires_approval = True
 
         return PolicyResult(allowed=True, requires_approval=requires_approval)

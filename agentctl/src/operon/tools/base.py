@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from operon.agent.spec import PolicyMode
+
 
 class Tool(ABC):
     @property
@@ -35,12 +37,12 @@ class ToolRegistry:
     def get_actions(
         self,
         allowed: list[str] | None = None,
-        policy_mode: str = "autonomous",
+        policy_mode: PolicyMode = PolicyMode.AUTONOMOUS,
     ) -> list[dict]:
         actions = list(self._action_meta.values())
         if allowed:
             actions = [a for a in actions if a["name"] in allowed]
-        if policy_mode == "read_only":
+        if policy_mode == PolicyMode.READ_ONLY:
             actions = [a for a in actions if a.get("type", "read") != "write"]
         return actions
 

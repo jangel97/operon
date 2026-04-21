@@ -16,7 +16,7 @@ spec:
     type: llm
     provider: ollama
     model: qwen3:14b
-    base_url: http://192.168.1.136:11434/v1
+    base_url: http://192.168.1.137:11434/v1
 
   inputs:
     city:
