@@ -62,7 +62,10 @@ class WebSearchTool(Tool):
 
     def _search(self, params: dict) -> str:
         query = params.get("query", "")
-        max_results = int(params.get("max_results", 5))
+        try:
+            max_results = int(params.get("max_results", 5))
+        except (ValueError, TypeError):
+            max_results = 5
         max_results = max(1, min(max_results, 10))
 
         try:

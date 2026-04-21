@@ -46,7 +46,10 @@ class WeatherTool(Tool):
             )
 
         if action == "get_forecast":
-            days = int(params.get("days", 3))
+            try:
+                days = int(params.get("days", 3))
+            except (ValueError, TypeError):
+                days = 3
             lines = [f"Forecast for {city} ({days} days):"]
             day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
             for i in range(days):

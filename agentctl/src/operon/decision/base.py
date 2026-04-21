@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
@@ -86,6 +87,9 @@ class LLMProvider(ABC):
         if data.get("done"):
             return Decision(done=True, summary=data.get("summary", ""))
 
+        if "action" not in data:
+            return Decision(done=True, summary=data.get("summary", str(data)))
+
         return Decision(
             action=Action(
                 action=data["action"],
@@ -97,8 +101,6 @@ class LLMProvider(ABC):
 
 
 def _extract_json(text: str) -> dict:
-    import re
-
     fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if fence:
         return json.loads(fence.group(1))

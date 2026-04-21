@@ -49,10 +49,25 @@ agentctl run agentctl/examples/agent-research.yaml -o ndjson -e question="..."
 
 ## How it works
 
+```mermaid
+flowchart LR
+    YAML["Agent YAML\ngoal + tools + policy"] --> DECIDE
+    subgraph LOOP ["Agent Loop"]
+        DECIDE["LLM Decides"] -->|action| POLICY{"Policy\nCheck"}
+        POLICY -->|allowed| EXECUTE["Execute"]
+        POLICY -->|denied| DECIDE
+        EXECUTE --> OBSERVE["Observe\nResult"]
+        OBSERVE --> DECIDE
+    end
+    DECIDE -->|done| TRACE["Trace\n+ Audit"]
+```
+
 1. Define an agent in YAML (goal, tools, policy, LLM provider)
 2. `agentctl run agent.yaml`
 3. The loop runs: **decide → policy check → approve → execute → observe**
 4. Every step is traced for auditability
+
+See [docs/architecture.md](docs/architecture.md) for detailed diagrams.
 
 ## Tools are plugins
 
@@ -83,4 +98,5 @@ Tests cover the safety-critical components: policy engine (mode enforcement, all
 | Document | Description |
 |----------|-------------|
 | [agentctl/README.md](agentctl/README.md) | Full runtime documentation — CLI, spec reference, tools, providers |
+| [docs/architecture.md](docs/architecture.md) | Architecture diagrams — agent loop, data flow, plugin system, policy |
 | [docs/recipes.md](docs/recipes.md) | Design doc for community-shared agent recipes (planned) |

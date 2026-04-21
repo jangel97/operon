@@ -9,7 +9,7 @@ from rich.console import Console
 from operon.agent.loop import AgentLoop
 from operon.agent.redact import Redactor
 from operon.agent.secrets import resolve_env_vars
-from operon.agent.spec import AgentDefinition
+from operon.agent.spec import AgentDefinition, AgentSpec
 from operon.agent.trace import ExecutionTrace
 from operon.decision import create_provider
 from operon.policy.engine import PolicyEngine
@@ -74,7 +74,7 @@ class AgentRunner:
 
         return loop.run()
 
-    def _resolve_inputs(self, spec, inputs: dict | None) -> dict:
+    def _resolve_inputs(self, spec: AgentSpec, inputs: dict | None) -> dict:
         resolved = {}
         for name, input_spec in spec.inputs.items():
             if inputs and name in inputs:
@@ -85,7 +85,7 @@ class AgentRunner:
                 raise ValueError(f"Missing required input: {name}")
         return resolved
 
-    def _build_tool_registry(self, spec):
+    def _build_tool_registry(self, spec: AgentSpec) -> ToolRegistry:
         registry = ToolRegistry()
         for tool_spec in spec.tools:
             registry.register(create_tool(tool_spec.type))

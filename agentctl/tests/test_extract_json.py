@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from operon.decision.base import _extract_json
+from operon.decision.base import LLMProvider, _extract_json
 
 
 class TestPlainJson:
@@ -93,3 +93,25 @@ class TestEdgeCases:
         text = '{"action": "kubectl:get_pods", "params": {}, "confidence": "0.9"}'
         result = _extract_json(text)
         assert result["confidence"] == "0.9"
+
+
+class TestParseResponse:
+    class _DummyProvider(LLMProvider):
+        def _call_llm(self, messages: list[dict]) -> str:
+            return ""
+
+    def test_missing_action_field_treated_as_done(self):
+        provider = self._DummyProvider()
+        decision = provider._parse_response('{"done": false, "reasoning": "hmm"}')
+        assert decision.done is True
+
+    def test_valid_action_parsed(self):
+        provider = self._DummyProvider()
+        decision = provider._parse_response('{"action": "kubectl:get_pods", "params": {}}')
+        assert decision.action.action == "kubectl:get_pods"
+
+    def test_done_true_parsed(self):
+        provider = self._DummyProvider()
+        decision = provider._parse_response('{"done": true, "summary": "all done"}')
+        assert decision.done is True
+        assert decision.summary == "all done"
