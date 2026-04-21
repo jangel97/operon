@@ -9,6 +9,8 @@ from typing import Any
 from rich.console import Console
 from rich.table import Table
 
+from operon.agent.redact import Redactor
+
 
 class EventType(str, Enum):
     DECISION = "DECISION"
@@ -39,6 +41,7 @@ class ExecutionTrace:
     events: list[TraceEvent] = field(default_factory=list)
     status: str = "pending"
     on_event: Callable[[dict], None] | None = None
+    redactor: Redactor = field(default_factory=Redactor)
 
     def start(self) -> None:
         self.started_at = TraceEvent.now()
@@ -64,10 +67,10 @@ class ExecutionTrace:
 
     def _emit(self, payload: dict) -> None:
         if self.on_event:
-            self.on_event(payload)
+            self.on_event(self.redactor.redact(payload))
 
     def to_dict(self) -> dict:
-        return {
+        raw = {
             "agent": self.agent_name,
             "status": self.status,
             "started_at": self.started_at,
@@ -79,6 +82,7 @@ class ExecutionTrace:
                 for e in self.events
             ],
         }
+        return self.redactor.redact(raw)
 
     def print_summary(self, console: Console) -> None:
         table = Table(title="Execution Trace", show_lines=True)
@@ -89,7 +93,7 @@ class ExecutionTrace:
 
         for i, event in enumerate(self.events, 1):
             style = _event_style(event.type)
-            details = _format_details(event)
+            details = self.redactor.redact(_format_details(event))
             table.add_row(str(i), f"[{style}]{event.type.value}[/]", event.timestamp, details)
 
         console.print()

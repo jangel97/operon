@@ -7,6 +7,7 @@ import yaml
 from rich.console import Console
 
 from operon.agent.loop import AgentLoop
+from operon.agent.redact import Redactor
 from operon.agent.spec import AgentDefinition
 from operon.agent.trace import ExecutionTrace
 from operon.decision import create_provider
@@ -38,8 +39,14 @@ class AgentRunner:
         self.console.print(f"[bold]Provider:[/] {spec.decision.provider}/{spec.decision.model}")
 
         resolved_inputs = self._resolve_inputs(spec, inputs)
+
+        redactor = Redactor()
+        for name, input_spec in spec.inputs.items():
+            if input_spec.no_log and name in resolved_inputs:
+                redactor.add_secret(str(resolved_inputs[name]))
+
         if resolved_inputs:
-            self.console.print(f"[bold]Inputs:[/] {resolved_inputs}")
+            self.console.print(f"[bold]Inputs:[/] {redactor.redact(resolved_inputs)}")
 
         provider_kwargs = {"model": spec.decision.model}
         if spec.decision.base_url:
@@ -61,6 +68,7 @@ class AgentRunner:
             dry_run=dry_run,
             console=self.console,
             on_event=self.on_event,
+            redactor=redactor,
         )
 
         return loop.run()

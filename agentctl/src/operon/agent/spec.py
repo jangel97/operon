@@ -22,6 +22,7 @@ class DecisionSpec(BaseModel):
 class InputSpec(BaseModel):
     type: str
     default: Any = None
+    no_log: bool = False
 
 
 class ToolSpec(BaseModel):

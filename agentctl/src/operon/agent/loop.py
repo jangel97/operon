@@ -7,6 +7,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm
 
+from operon.agent.redact import Redactor
 from operon.agent.trace import EventType, ExecutionTrace
 from operon.decision.base import LLMProvider
 from operon.policy.engine import PolicyEngine
@@ -26,6 +27,7 @@ class AgentLoop:
         dry_run: bool = False,
         console: Console | None = None,
         on_event: Callable[[dict], None] | None = None,
+        redactor: Redactor | None = None,
     ) -> None:
         self.goal = goal
         self.decision_engine = decision_engine
@@ -33,8 +35,9 @@ class AgentLoop:
         self.policy_engine = policy_engine
         self.dry_run = dry_run
         self.console = console or Console()
+        self.redactor = redactor or Redactor()
         self.history: list[dict] = []
-        self.trace = ExecutionTrace(agent_name=agent_name, on_event=on_event)
+        self.trace = ExecutionTrace(agent_name=agent_name, on_event=on_event, redactor=self.redactor)
 
     def run(self) -> ExecutionTrace:
         self.trace.start()
@@ -66,7 +69,7 @@ class AgentLoop:
 
             if decision.done:
                 self.console.print(
-                    Panel(decision.summary, title="Completed", border_style="green")
+                    Panel(self.redactor.redact(decision.summary), title="Completed", border_style="green")
                 )
                 self.trace.record(EventType.DONE, summary=decision.summary)
                 self.trace.finish("completed")
@@ -74,10 +77,10 @@ class AgentLoop:
 
             action = decision.action
             self.console.print(f"[bold yellow]Action:[/] {action.action}")
-            self.console.print(f"[dim]Reasoning:[/] {action.reasoning}")
+            self.console.print(f"[dim]Reasoning:[/] {self.redactor.redact(action.reasoning)}")
             self.console.print(f"[dim]Confidence:[/] {action.confidence}")
             if action.params:
-                self.console.print(f"[dim]Params:[/] {json.dumps(action.params)}")
+                self.console.print(f"[dim]Params:[/] {json.dumps(self.redactor.redact(action.params))}")
 
             self.trace.record(
                 EventType.DECISION,
@@ -148,7 +151,7 @@ class AgentLoop:
                     self.trace.record(EventType.ERROR, error=str(e))
 
                 self.policy_engine.record_action()
-                self.console.print(f"[green]Result:[/]\n{result}")
+                self.console.print(f"[green]Result:[/]\n{self.redactor.redact(result)}")
                 self.trace.record(EventType.RESULT, result=result)
 
             self.history.append({
