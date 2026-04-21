@@ -8,6 +8,7 @@ from rich.console import Console
 
 from operon.agent.loop import AgentLoop
 from operon.agent.redact import Redactor
+from operon.agent.secrets import resolve_env_vars
 from operon.agent.spec import AgentDefinition
 from operon.agent.trace import ExecutionTrace
 from operon.decision import create_provider
@@ -30,7 +31,7 @@ class AgentRunner:
         if not path.exists():
             raise FileNotFoundError(f"Agent spec not found: {spec_path}")
 
-        raw = yaml.safe_load(path.read_text())
+        raw = yaml.safe_load(resolve_env_vars(path.read_text()))
         definition = AgentDefinition(**raw)
         spec = definition.spec
 

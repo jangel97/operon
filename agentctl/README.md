@@ -88,18 +88,22 @@ spec:
   goal: |
     Detect application failures and recover safely.
 
-  # LLM configuration
+  # LLM configuration (supports ${ENV_VAR} interpolation)
   decision:
     type: llm
     provider: ollama              # ollama or openai
     model: qwen3:14b
-    base_url: http://host:11434/v1  # optional, for remote Ollama
+    base_url: ${OLLAMA_URL}       # resolved from environment
 
   # Runtime inputs (override with --set/-e or --set-file)
   inputs:
     namespace:
       type: string
       default: default
+    api_token:
+      type: string
+      no_log: true                # value redacted from all output
+      default: ${API_TOKEN:-}
 
   # Tools the agent can use (tools define CAPABILITY)
   tools:
@@ -128,7 +132,8 @@ spec:
 | `spec.decision.provider` | LLM provider: `openai` or `ollama` |
 | `spec.decision.model` | Model name (e.g., `gpt-4o-mini`, `qwen3:14b`) |
 | `spec.decision.base_url` | Optional base URL for the LLM API |
-| `spec.inputs` | Key-value inputs with types and optional defaults |
+| `spec.inputs` | Key-value inputs with types, optional defaults, and `no_log` |
+| `spec.inputs[].no_log` | When `true`, the input value is redacted from all output |
 | `spec.tools` | List of tool types the agent can use (tools define capability) |
 | `spec.policy.mode` | `approval_required` (human approves each action), `autonomous` (no approval), `read_only` (blocks write operations) |
 | `spec.policy.allowed_actions` | Whitelist of namespaced actions the agent may execute (e.g., `kubectl:get_pods`) |
@@ -163,6 +168,50 @@ decision:
 ```bash
 export OPENAI_API_KEY=sk-...
 agentctl run agent.yaml
+```
+
+## Secrets and Credentials
+
+Agent specs support `${ENV_VAR}` interpolation in any string value. This keeps secrets out of YAML files.
+
+```yaml
+decision:
+  base_url: ${OLLAMA_URL}                    # required — fails if not set
+
+inputs:
+  db_password:
+    type: string
+    no_log: true                              # redacted from all output
+    default: ${DB_PASSWORD:-}                 # optional — empty string if not set
+```
+
+### Environment variable syntax
+
+| Syntax | Behavior |
+|--------|----------|
+| `${VAR}` | Resolves from environment. Fails if not set. |
+| `${VAR:-default}` | Resolves from environment. Uses `default` if not set. |
+| `${VAR:-}` | Resolves from environment. Empty string if not set. |
+
+### no_log
+
+Inputs marked with `no_log: true` have their values redacted from **all output** — console, JSON trace, NDJSON streaming, and Rich summary table. The LLM still sees the real value to reason with, but it never appears in any external output.
+
+Redaction is **value-based**: if the secret value appears anywhere — in params, reasoning, results, or summaries — it gets replaced with `***REDACTED***`.
+
+```bash
+# The agent sees the real token, but output shows ***REDACTED***
+export API_TOKEN=sk-secret-123
+agentctl run agent.yaml -o json | grep REDACTED
+```
+
+### Validation
+
+Use `agentctl validate` to check that all referenced environment variables are set:
+
+```bash
+agentctl validate agent.yaml
+# Error: Environment variable not set: OLLAMA_URL
 ```
 
 ## Decision Schema

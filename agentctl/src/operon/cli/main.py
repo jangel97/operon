@@ -103,16 +103,49 @@ def validate(
     """Validate an agent YAML spec without running it."""
     import yaml
     from pathlib import Path
+    from operon.agent.secrets import resolve_env_vars
     from operon.agent.spec import AgentDefinition
+    from operon.tools import _discover_tools, _tools
 
     console = Console()
     try:
-        raw = yaml.safe_load(Path(spec).read_text())
+        raw_text = Path(spec).read_text()
+        resolved = resolve_env_vars(raw_text)
+        raw = yaml.safe_load(resolved)
         definition = AgentDefinition(**raw)
-        console.print(f"[green]Valid:[/] {definition.metadata.name} ({definition.metadata.version})")
+    except FileNotFoundError:
+        console.print(f"[bold red]Error:[/] File not found: {spec}")
+        raise typer.Exit(ExitCode.ERROR)
     except Exception as e:
         console.print(f"[bold red]Invalid spec:[/] {e}")
         raise typer.Exit(ExitCode.ERROR)
+
+    console.print(f"[green]Valid:[/] {definition.metadata.name} ({definition.metadata.version})")
+
+    warnings: list[str] = []
+
+    _discover_tools()
+    for tool_spec in definition.spec.tools:
+        if tool_spec.type not in _tools:
+            warnings.append(f"Tool type '{tool_spec.type}' is not installed")
+
+    for action in definition.spec.policy.allowed_actions:
+        if ":" not in action:
+            warnings.append(f"Action '{action}' is not namespaced (expected tool:action)")
+
+    required_inputs = [
+        name for name, inp in definition.spec.inputs.items()
+        if inp.default is None
+    ]
+    if required_inputs:
+        console.print(f"[dim]Required inputs:[/] {', '.join(required_inputs)}")
+
+    if warnings:
+        for w in warnings:
+            console.print(f"[yellow]Warning:[/] {w}")
+        raise typer.Exit(ExitCode.ERROR)
+
+    console.print("[green]All checks passed.[/]")
 
 
 @app.command()
