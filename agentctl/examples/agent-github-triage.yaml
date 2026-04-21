@@ -1,0 +1,38 @@
+apiVersion: agents/v1
+kind: Agent
+
+metadata:
+  name: github-issue-triage
+  version: v1
+
+spec:
+  goal: |
+    Triage open issues in the repository {{repo}}.
+    List all open issues, review each one, and add appropriate labels.
+    If any issue has been open for more than 30 days with no comments,
+    add a "stale" label. Summarize your triage when done.
+
+  decision:
+    type: llm
+    provider: ollama
+    model: qwen3:14b
+    base_url: http://192.168.1.138:11434/v1
+
+  inputs:
+    repo:
+      type: string
+      default: "jangel97/operon"
+
+  tools:
+    - name: github
+      type: github
+
+  policy:
+    mode: read_only
+
+    allowed_actions:
+      - github:list_issues
+      - github:get_issue
+
+    constraints:
+      max_actions: 15

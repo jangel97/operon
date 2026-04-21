@@ -151,7 +151,7 @@ decision:
   type: llm
   provider: ollama
   model: qwen3:14b
-  base_url: http://192.168.1.137:11434/v1   # remote
+  base_url: http://192.168.1.138:11434/v1   # remote
 ```
 
 ### OpenAI
@@ -342,6 +342,7 @@ operon/
 ├── agentctl/                        # runtime (no tools)
 └── tools/
     ├── operon-tool-kubectl/         # Kubernetes (real kubectl)
+    ├── operon-tool-github/          # GitHub (issues, PRs, CI via gh CLI)
     ├── operon-tool-websearch/       # Web search + fetch
     └── operon-tool-weather/         # Weather (mock)
 ```
@@ -495,3 +496,4 @@ The test suite covers the safety-critical components with no external dependenci
 | `test_policy_engine.py` | All three policy modes, allowed actions, max actions, denied patterns, write escalation, check evaluation order |
 | `test_extract_json.py` | Clean JSON, code fences, surrounding text, garbage fallback, edge cases |
 | `test_tool_registry.py` | Namespacing, allowed filtering, policy mode filtering, metadata, execution routing |
+| `test_github_tool.py` | Action schema, validation, command building, error handling, coercion, registry integration |

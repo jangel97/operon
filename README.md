@@ -11,6 +11,7 @@ operon/
 ├── agentctl/                    # Agent Runner — the core runtime
 ├── tools/                       # Tool plugins (each is a separate pip package)
 │   ├── operon-tool-kubectl/     # Kubernetes (real kubectl, intent-based)
+│   ├── operon-tool-github/      # GitHub (issues, PRs, CI via gh CLI)
 │   ├── operon-tool-websearch/   # Web search + fetch (DuckDuckGo)
 │   ├── operon-tool-weather/     # Weather tool (mock)
 │   └── operon-tool-k8s/        # Kubernetes tool (mock, legacy)
@@ -23,6 +24,7 @@ operon/
 |-----------|-------------|--------|
 | [**agentctl**](agentctl/) | CLI runtime — loads agent specs, runs the decision loop, enforces policies | MVP |
 | [**operon-tool-kubectl**](tools/operon-tool-kubectl/) | Kubernetes operations via kubectl (intent-based, read/write tagged) | MVP |
+| [**operon-tool-github**](tools/operon-tool-github/) | GitHub issues, PRs, releases, CI via `gh` CLI | MVP |
 | [**operon-tool-websearch**](tools/operon-tool-websearch/) | Web search (DuckDuckGo) and page fetching | MVP |
 | [**operon-tool-weather**](tools/operon-tool-weather/) | Weather conditions and forecasts | MVP (mock) |
 | **Control Plane** | Manages agents, coordinates execution, centralizes policies | Planned |
@@ -32,13 +34,16 @@ operon/
 ```bash
 # Install the runtime and tools
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e agentctl/ -e tools/operon-tool-websearch/ -e tools/operon-tool-kubectl/
+pip install -e agentctl/ -e tools/operon-tool-websearch/ -e tools/operon-tool-kubectl/ -e tools/operon-tool-github/
 
 # Run a research agent
 agentctl run agentctl/examples/agent-research.yaml -e question="Best restaurants in Tarragona"
 
 # Run a weather agent
 agentctl run agentctl/examples/agent-websearch-weather.yaml -e city="Barcelona, Spain"
+
+# Triage GitHub issues (requires gh CLI authenticated)
+agentctl run agentctl/examples/agent-github-triage.yaml -e repo=myorg/myrepo
 
 # Run a K8s investigator (requires kubectl configured)
 agentctl run agentctl/examples/agent-kubectl.yaml -e namespace=production
@@ -75,10 +80,10 @@ Tools are separate packages that agentctl discovers automatically via Python ent
 
 ```bash
 pip install operon-tool-kubectl      # Kubernetes (real kubectl)
+pip install operon-tool-github       # GitHub (issues, PRs, CI)
 pip install operon-tool-websearch    # Web search + fetch
 pip install operon-tool-weather      # Weather (mock)
 pip install operon-tool-aws          # AWS (future)
-pip install operon-tool-github       # GitHub (future)
 ```
 
 See [agentctl/README.md](agentctl/README.md) for full documentation on creating tools and providers.

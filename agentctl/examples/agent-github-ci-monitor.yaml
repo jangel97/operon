@@ -1,0 +1,40 @@
+apiVersion: agents/v1
+kind: Agent
+
+metadata:
+  name: github-ci-monitor
+  version: v1
+
+spec:
+  goal: |
+    Monitor CI/CD status for the repository {{repo}}.
+    List recent workflow runs, identify any failures, and get details
+    on failed runs. If there are failures, create an issue summarizing
+    what broke. Summarize your findings when done.
+
+  decision:
+    type: llm
+    provider: ollama
+    model: qwen3:14b
+    base_url: http://192.168.1.138:11434/v1
+
+  inputs:
+    repo:
+      type: string
+      default: "jangel97/operon"
+
+  tools:
+    - name: github
+      type: github
+
+  policy:
+    mode: autonomous
+
+    allowed_actions:
+      - github:list_workflow_runs
+      - github:get_workflow_run
+      - github:list_issues
+      - github:create_issue
+
+    constraints:
+      max_actions: 10
