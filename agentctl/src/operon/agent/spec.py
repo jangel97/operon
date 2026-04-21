@@ -27,7 +27,6 @@ class InputSpec(BaseModel):
 class ToolSpec(BaseModel):
     name: str
     type: str
-    config: dict[str, Any] = {}
 
 
 class TriggerSpec(BaseModel):

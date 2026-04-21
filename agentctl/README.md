@@ -431,3 +431,18 @@ class YourProvider(LLMProvider):
 from operon.decision.your_provider import YourProvider
 register_provider("your_provider", YourProvider)
 ```
+
+## Testing
+
+```bash
+pip install -e ".[dev]"
+python -m pytest tests/ -v
+```
+
+The test suite covers the safety-critical components with no external dependencies (no LLM calls, no network):
+
+| Test file | What it covers |
+|-----------|----------------|
+| `test_policy_engine.py` | All three policy modes, allowed actions, max actions, denied patterns, write escalation, check evaluation order |
+| `test_extract_json.py` | Clean JSON, code fences, surrounding text, garbage fallback, edge cases |
+| `test_tool_registry.py` | Namespacing, allowed filtering, policy mode filtering, metadata, execution routing |

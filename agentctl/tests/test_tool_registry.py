@@ -1,0 +1,182 @@
+from __future__ import annotations
+
+import pytest
+
+from operon.agent.spec import PolicyMode
+from operon.tools.base import Tool, ToolRegistry
+
+
+class FakeTool(Tool):
+    @property
+    def name(self) -> str:
+        return "kubectl"
+
+    def actions(self) -> list[dict]:
+        return [
+            {"name": "get_pods", "type": "read", "description": "List pods", "params": {}},
+            {"name": "get_logs", "type": "read", "description": "Get logs", "params": {}},
+            {"name": "delete_pod", "type": "write", "description": "Delete pod", "params": {}},
+        ]
+
+    def execute(self, action: str, params: dict) -> str:
+        return f"executed {action} with {params}"
+
+
+class AnotherTool(Tool):
+    @property
+    def name(self) -> str:
+        return "websearch"
+
+    def actions(self) -> list[dict]:
+        return [
+            {"name": "web_search", "type": "read", "description": "Search", "params": {}},
+            {"name": "web_fetch", "type": "read", "description": "Fetch", "params": {}},
+        ]
+
+    def execute(self, action: str, params: dict) -> str:
+        return f"executed {action} with {params}"
+
+
+def make_registry(*tools: Tool) -> ToolRegistry:
+    registry = ToolRegistry()
+    for tool in tools:
+        registry.register(tool)
+    return registry
+
+
+# --- Namespacing ---
+
+
+class TestNamespacing:
+    def test_actions_are_namespaced(self):
+        registry = make_registry(FakeTool())
+        actions = registry.get_actions()
+        names = [a["name"] for a in actions]
+        assert "kubectl:get_pods" in names
+        assert "kubectl:delete_pod" in names
+        assert "get_pods" not in names
+
+    def test_multiple_tools_namespaced(self):
+        registry = make_registry(FakeTool(), AnotherTool())
+        actions = registry.get_actions()
+        names = [a["name"] for a in actions]
+        assert "kubectl:get_pods" in names
+        assert "websearch:web_search" in names
+
+    def test_action_count(self):
+        registry = make_registry(FakeTool(), AnotherTool())
+        actions = registry.get_actions()
+        assert len(actions) == 5
+
+
+# --- Filtering by allowed list ---
+
+
+class TestAllowedFiltering:
+    def test_filter_by_allowed(self):
+        registry = make_registry(FakeTool())
+        actions = registry.get_actions(allowed=["kubectl:get_pods"])
+        assert len(actions) == 1
+        assert actions[0]["name"] == "kubectl:get_pods"
+
+    def test_filter_multiple_allowed(self):
+        registry = make_registry(FakeTool())
+        actions = registry.get_actions(allowed=["kubectl:get_pods", "kubectl:get_logs"])
+        assert len(actions) == 2
+
+    def test_no_filter_returns_all(self):
+        registry = make_registry(FakeTool())
+        actions = registry.get_actions(allowed=None)
+        assert len(actions) == 3
+
+    def test_filter_cross_tool(self):
+        registry = make_registry(FakeTool(), AnotherTool())
+        actions = registry.get_actions(
+            allowed=["kubectl:get_pods", "websearch:web_search"]
+        )
+        assert len(actions) == 2
+
+
+# --- Filtering by policy mode ---
+
+
+class TestPolicyModeFiltering:
+    def test_read_only_hides_write_actions(self):
+        registry = make_registry(FakeTool())
+        actions = registry.get_actions(policy_mode=PolicyMode.READ_ONLY)
+        names = [a["name"] for a in actions]
+        assert "kubectl:get_pods" in names
+        assert "kubectl:get_logs" in names
+        assert "kubectl:delete_pod" not in names
+
+    def test_autonomous_shows_all(self):
+        registry = make_registry(FakeTool())
+        actions = registry.get_actions(policy_mode=PolicyMode.AUTONOMOUS)
+        assert len(actions) == 3
+
+    def test_approval_required_shows_all(self):
+        registry = make_registry(FakeTool())
+        actions = registry.get_actions(policy_mode=PolicyMode.APPROVAL_REQUIRED)
+        assert len(actions) == 3
+
+    def test_read_only_with_allowed_combines_filters(self):
+        registry = make_registry(FakeTool())
+        actions = registry.get_actions(
+            allowed=["kubectl:get_pods", "kubectl:delete_pod"],
+            policy_mode=PolicyMode.READ_ONLY,
+        )
+        assert len(actions) == 1
+        assert actions[0]["name"] == "kubectl:get_pods"
+
+
+# --- Action metadata ---
+
+
+class TestActionMeta:
+    def test_get_action_meta_returns_metadata(self):
+        registry = make_registry(FakeTool())
+        meta = registry.get_action_meta("kubectl:get_pods")
+        assert meta["name"] == "kubectl:get_pods"
+        assert meta["type"] == "read"
+        assert meta["description"] == "List pods"
+
+    def test_get_action_meta_unknown_returns_empty(self):
+        registry = make_registry(FakeTool())
+        meta = registry.get_action_meta("kubectl:nonexistent")
+        assert meta == {}
+
+    def test_meta_preserves_original_fields(self):
+        registry = make_registry(FakeTool())
+        meta = registry.get_action_meta("kubectl:delete_pod")
+        assert meta["type"] == "write"
+
+
+# --- Execution ---
+
+
+class TestExecution:
+    def test_execute_routes_to_correct_tool(self):
+        registry = make_registry(FakeTool(), AnotherTool())
+        result = registry.execute("kubectl:get_pods", {"namespace": "default"})
+        assert "get_pods" in result
+        assert "default" in result
+
+    def test_execute_strips_namespace(self):
+        registry = make_registry(FakeTool())
+        result = registry.execute("kubectl:get_pods", {})
+        assert result == "executed get_pods with {}"
+
+    def test_execute_unknown_action_raises(self):
+        registry = make_registry(FakeTool())
+        with pytest.raises(ValueError, match="Unknown action"):
+            registry.execute("kubectl:nonexistent", {})
+
+    def test_execute_wrong_tool_prefix_raises(self):
+        registry = make_registry(FakeTool())
+        with pytest.raises(ValueError, match="Unknown action"):
+            registry.execute("aws:list_instances", {})
+
+    def test_execute_unnamespaced_raises(self):
+        registry = make_registry(FakeTool())
+        with pytest.raises(ValueError, match="Unknown action"):
+            registry.execute("get_pods", {})

@@ -67,3 +67,20 @@ pip install operon-tool-github       # GitHub (future)
 ```
 
 See [agentctl/README.md](agentctl/README.md) for full documentation on creating tools and providers.
+
+## Testing
+
+```bash
+source .venv/bin/activate
+pip install -e "agentctl/[dev]"
+cd agentctl && python -m pytest tests/ -v
+```
+
+Tests cover the safety-critical components: policy engine (mode enforcement, allowed actions, denied patterns), JSON extraction from LLM responses, and tool registry (namespacing, filtering, routing).
+
+## Docs
+
+| Document | Description |
+|----------|-------------|
+| [agentctl/README.md](agentctl/README.md) | Full runtime documentation — CLI, spec reference, tools, providers |
+| [docs/recipes.md](docs/recipes.md) | Design doc for community-shared agent recipes (planned) |
