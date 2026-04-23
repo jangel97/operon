@@ -149,6 +149,27 @@ def validate(
 
 
 @app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", "-H", help="Bind address"),
+    port: int = typer.Option(8080, "--port", "-p", help="Bind port"),
+) -> None:
+    """Start the agentctl API server."""
+    try:
+        import uvicorn
+    except ImportError:
+        Console().print(
+            "[bold red]Error:[/] Server dependencies not installed.\n"
+            'Install with: [bold]pip install "operon[serve]"[/]'
+        )
+        raise typer.Exit(ExitCode.ERROR)
+
+    from operon.api.server import create_app as _create_app
+
+    Console().print(f"[bold]Starting Operon API server[/] on {host}:{port}")
+    uvicorn.run(_create_app(), host=host, port=port, log_level="info")
+
+
+@app.command()
 def version() -> None:
     """Show agentctl version."""
     Console().print(f"agentctl v{__version__}")

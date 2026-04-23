@@ -51,6 +51,9 @@ agentctl run agent.yaml -o ndjson | jq 'select(.type == "DECISION")'
 # Validate a spec without running
 agentctl validate agent.yaml
 
+# Start the API server
+agentctl serve --port 8080
+
 # Show version
 agentctl version
 ```
@@ -327,6 +330,43 @@ agentctl run agent.yaml -o ndjson
 {"type": "FINISH", "agent": "researcher", "status": "completed", "duration": "13.7s", "total_events": 9}
 ```
 
+## API Server
+
+`agentctl serve` starts a REST API server for triggering and monitoring agent runs over HTTP. This is the foundation for control planes, dashboards, and CI/CD integrations.
+
+```bash
+pip install "operon[serve]"
+agentctl serve --port 8080
+```
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/healthz` | Health check |
+| `POST` | `/api/v1/runs` | Submit a new agent run (returns `run_id`) |
+| `GET` | `/api/v1/runs` | List all runs |
+| `GET` | `/api/v1/runs/{run_id}` | Get run status and full trace |
+| `GET` | `/api/v1/runs/{run_id}/events` | SSE stream of real-time events |
+
+### Example
+
+```bash
+# Submit a run
+curl -X POST http://localhost:8080/api/v1/runs \
+  -H "Content-Type: application/json" \
+  -d '{"spec": "examples/agent-github-triage.yaml", "inputs": {"repo": "myorg/myrepo"}}'
+# {"run_id": "a1b2c3d4e5f6", "status": "pending"}
+
+# Check status
+curl http://localhost:8080/api/v1/runs/a1b2c3d4e5f6
+
+# Stream events (Server-Sent Events)
+curl http://localhost:8080/api/v1/runs/a1b2c3d4e5f6/events
+```
+
+Runs execute in background threads. The API returns `202 Accepted` immediately with a `run_id` for polling or SSE streaming. Use `autonomous` or `read_only` policy modes — `approval_required` is designed for interactive CLI use.
+
 ## Policy Modes
 
 | Mode | Behavior |
@@ -536,3 +576,4 @@ The test suite covers the safety-critical components with no external dependenci
 | `test_tool_registry.py` | Namespacing, allowed filtering, policy mode filtering, metadata, execution routing |
 | `test_github_tool.py` | Action schema, validation, command building, error handling, coercion, registry integration |
 | `test_extractor.py` | Two-model architecture: spec parsing, extractor wiring, prompt construction, fallback handling |
+| `test_api_server.py` | API server: endpoints, run lifecycle, SSE streaming, in-memory state store |
