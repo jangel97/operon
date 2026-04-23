@@ -21,11 +21,42 @@ class Decision:
     summary: str = ""
 
 
+_EXTRACTOR_PROMPT = (
+    "You are a JSON extraction assistant. "
+    "Given the user's raw text, extract and return ONLY a valid JSON object "
+    "matching one of these two schemas:\n\n"
+    "Action:\n"
+    '{"done": false, "action": "<name>", "params": {...}, '
+    '"reasoning": "why this action is needed", "confidence": 0.0-1.0}\n\n'
+    "Done:\n"
+    '{"done": true, "summary": "what was accomplished"}\n\n'
+    "Rules:\n"
+    "- Output ONLY valid JSON, no markdown, no explanation\n"
+    "- Preserve all information from the raw text\n"
+    "- If the text indicates the task is complete, use the done schema\n"
+    "- If the text indicates an action to take, use the action schema\n"
+)
+
+
 class LLMProvider(ABC):
+    _extractor: LLMProvider | None = None
+
+    def set_extractor(self, extractor: LLMProvider) -> None:
+        self._extractor = extractor
+
     def decide(self, goal: str, tools: list[dict], history: list[dict]) -> Decision:
         messages = self._build_messages(goal, tools, history)
         raw = self._call_llm(messages)
+        if self._extractor is not None:
+            raw = self._extract_with_model(raw)
         return self._parse_response(raw)
+
+    def _extract_with_model(self, raw: str) -> str:
+        messages = [
+            {"role": "system", "content": _EXTRACTOR_PROMPT},
+            {"role": "user", "content": raw},
+        ]
+        return self._extractor._call_llm(messages)
 
     @abstractmethod
     def _call_llm(self, messages: list[dict]) -> str:

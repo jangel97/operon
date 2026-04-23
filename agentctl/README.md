@@ -94,6 +94,8 @@ spec:
     provider: ollama              # ollama or openai
     model: qwen3:14b
     base_url: ${OLLAMA_URL}       # resolved from environment
+    extractor:                    # optional: small model for reliable JSON extraction
+      model: llama3.1:8b
 
   # Runtime inputs (override with --set/-e or --set-file)
   inputs:
@@ -132,6 +134,7 @@ spec:
 | `spec.decision.provider` | LLM provider: `openai` or `ollama` |
 | `spec.decision.model` | Model name (e.g., `gpt-4o-mini`, `qwen3:14b`) |
 | `spec.decision.base_url` | Optional base URL for the LLM API |
+| `spec.decision.extractor` | Optional extractor model for structured JSON extraction (see below) |
 | `spec.inputs` | Key-value inputs with types, optional defaults, and `no_log` |
 | `spec.inputs[].no_log` | When `true`, the input value is redacted from all output |
 | `spec.tools` | List of tool types the agent can use (tools define capability) |
@@ -169,6 +172,41 @@ decision:
 export OPENAI_API_KEY=sk-...
 agentctl run agent.yaml
 ```
+
+### Extractor (two-model architecture)
+
+By default, the same model handles both reasoning and structured JSON output. Some models (especially reasoning-focused ones like DeepSeek-R1) produce better results when they can think freely without worrying about output format.
+
+The `extractor` option adds a second, small model that converts the main model's raw output into structured JSON. The main model reasons freely, then the extractor reformats the response.
+
+```yaml
+decision:
+  provider: ollama
+  model: deepseek-r1:14b           # reasons freely
+  base_url: http://192.168.1.138:11434/v1
+  extractor:
+    model: llama3.1:8b              # small, fast, reliable JSON output
+```
+
+The extractor inherits `provider` and `base_url` from the parent by default. Override them to use a different provider:
+
+```yaml
+decision:
+  provider: ollama
+  model: qwen3:14b
+  base_url: http://192.168.1.138:11434/v1
+  extractor:
+    model: gpt-4o-mini
+    provider: openai                # uses OpenAI for extraction
+```
+
+| Field | Description |
+|-------|-------------|
+| `extractor.model` | Model name for the extractor (required) |
+| `extractor.provider` | Provider override (defaults to parent's provider) |
+| `extractor.base_url` | Base URL override (defaults to parent's base_url) |
+
+If `extractor` is omitted, the agent works exactly as before — the main model handles everything.
 
 ## Secrets and Credentials
 
@@ -497,3 +535,4 @@ The test suite covers the safety-critical components with no external dependenci
 | `test_extract_json.py` | Clean JSON, code fences, surrounding text, garbage fallback, edge cases |
 | `test_tool_registry.py` | Namespacing, allowed filtering, policy mode filtering, metadata, execution routing |
 | `test_github_tool.py` | Action schema, validation, command building, error handling, coercion, registry integration |
+| `test_extractor.py` | Two-model architecture: spec parsing, extractor wiring, prompt construction, fallback handling |

@@ -8,14 +8,14 @@ from .base import LLMProvider
 
 
 class OpenAIProvider(LLMProvider):
-    def __init__(self, model: str = "gpt-4o-mini"):
+    def __init__(self, model: str = "gpt-4o-mini", base_url: str | None = None):
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError(
                 "OPENAI_API_KEY environment variable is required. "
                 "Export it before running: export OPENAI_API_KEY=sk-..."
             )
-        self.client = OpenAI(api_key=api_key)
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
 
     def _call_llm(self, messages: list[dict]) -> str:

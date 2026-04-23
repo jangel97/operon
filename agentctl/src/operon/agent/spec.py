@@ -12,11 +12,18 @@ class PolicyMode(StrEnum):
     READ_ONLY = "read_only"
 
 
+class ExtractorSpec(BaseModel):
+    model: str
+    provider: str | None = None
+    base_url: str | None = None
+
+
 class DecisionSpec(BaseModel):
     type: str
     provider: str = "openai"
     model: str = "gpt-4o-mini"
     base_url: str | None = None
+    extractor: ExtractorSpec | None = None
 
 
 class InputSpec(BaseModel):

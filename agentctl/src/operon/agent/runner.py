@@ -38,6 +38,11 @@ class AgentRunner:
         self.console.print(f"[bold]Agent:[/] {definition.metadata.name} ({definition.metadata.version})")
         self.console.print(f"[bold]Mode:[/] {spec.policy.mode}")
         self.console.print(f"[bold]Provider:[/] {spec.decision.provider}/{spec.decision.model}")
+        if spec.decision.extractor:
+            ext = spec.decision.extractor
+            self.console.print(
+                f"[bold]Extractor:[/] {ext.provider or spec.decision.provider}/{ext.model}"
+            )
 
         resolved_inputs = self._resolve_inputs(spec, inputs)
 
@@ -53,6 +58,16 @@ class AgentRunner:
         if spec.decision.base_url:
             provider_kwargs["base_url"] = spec.decision.base_url
         decision_engine = create_provider(spec.decision.provider, **provider_kwargs)
+
+        if spec.decision.extractor:
+            ext = spec.decision.extractor
+            ext_provider = ext.provider or spec.decision.provider
+            ext_kwargs: dict = {"model": ext.model}
+            ext_base_url = ext.base_url or spec.decision.base_url
+            if ext_base_url:
+                ext_kwargs["base_url"] = ext_base_url
+            decision_engine.set_extractor(create_provider(ext_provider, **ext_kwargs))
+
         tool_registry = self._build_tool_registry(spec)
         policy_engine = PolicyEngine(spec.policy)
 
