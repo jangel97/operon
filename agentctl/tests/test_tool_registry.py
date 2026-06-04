@@ -165,3 +165,37 @@ class TestExecution:
         registry = make_registry(FakeTool())
         with pytest.raises(ValueError, match="Unknown action"):
             registry.execute("get_pods", {})
+
+
+# --- Config ---
+
+
+class TestConfig:
+    def test_config_merged_into_params(self):
+        registry = ToolRegistry()
+        registry.register(FakeTool(), config={"token": "secret123"})
+        result = registry.execute("kubectl:get_pods", {"namespace": "default"})
+        assert "token" in result
+        assert "secret123" in result
+        assert "default" in result
+
+    def test_params_override_config(self):
+        registry = ToolRegistry()
+        registry.register(FakeTool(), config={"namespace": "from-config"})
+        result = registry.execute("kubectl:get_pods", {"namespace": "from-params"})
+        assert "from-params" in result
+        assert "from-config" not in result
+
+    def test_no_config_passes_params_unchanged(self):
+        registry = ToolRegistry()
+        registry.register(FakeTool())
+        result = registry.execute("kubectl:get_pods", {"namespace": "default"})
+        assert result == "executed get_pods with {'namespace': 'default'}"
+
+    def test_config_not_shared_between_tools(self):
+        registry = ToolRegistry()
+        registry.register(FakeTool(), config={"token": "secret"})
+        registry.register(AnotherTool())
+        result = registry.execute("websearch:web_search", {"query": "test"})
+        assert "token" not in result
+        assert "secret" not in result

@@ -37,6 +37,18 @@ class TestActionToolSpec:
         assert spec.type == "websearch"
         assert spec.approval is None
 
+    def test_config_field(self):
+        spec = ActionToolSpec.model_validate(
+            {"telegram-sender": {"approval": "required", "config": {"bot_token": "abc", "chat_id": "123"}}}
+        )
+        assert spec.type == "telegram-sender"
+        assert spec.approval == ApprovalMode.REQUIRED
+        assert spec.config == {"bot_token": "abc", "chat_id": "123"}
+
+    def test_config_defaults_to_empty(self):
+        spec = ActionToolSpec.model_validate("websearch")
+        assert spec.config == {}
+
 
 class TestActionCollectionSpec:
     def test_bare_string(self):

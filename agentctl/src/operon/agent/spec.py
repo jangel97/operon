@@ -34,6 +34,7 @@ class InputSpec(BaseModel):
 class ActionToolSpec(BaseModel):
     type: str
     approval: ApprovalMode | None = None
+    config: dict[str, Any] = {}
 
     @model_validator(mode="before")
     @classmethod

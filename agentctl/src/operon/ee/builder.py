@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -7,6 +8,7 @@ from pathlib import Path
 from operon.ee.spec import EEDefinition
 
 _GO_BUILDER_IMAGE = "golang:1.23"
+_MODULES_TARGET = "/usr/lib/operon/modules"
 
 
 def generate_containerfile(ee: EEDefinition) -> str:
@@ -51,6 +53,13 @@ def generate_containerfile(ee: EEDefinition) -> str:
         lines.append(f"RUN pip install --no-cache-dir \\\n    {parts}")
         lines.append("")
 
+    if ee.dependencies.modules:
+        lines.append(f"RUN mkdir -p {_MODULES_TARGET}")
+        for mod in ee.dependencies.modules:
+            dir_name = Path(mod.path).name
+            lines.append(f"COPY modules/{dir_name} {_MODULES_TARGET}/{dir_name}")
+        lines.append("")
+
     lines.append('ENTRYPOINT ["agentctl"]')
     lines.append("")
 
@@ -61,18 +70,28 @@ def build_image(
     ee: EEDefinition,
     tag: str,
     runtime: str = "docker",
+    context_dir: Path | None = None,
 ) -> int:
     containerfile = generate_containerfile(ee)
     tmp = tempfile.mkdtemp(prefix="operon-ee-")
     try:
         cf_path = Path(tmp) / "Containerfile"
         cf_path.write_text(containerfile)
+
+        if ee.dependencies.modules:
+            modules_staging = Path(tmp) / "modules"
+            modules_staging.mkdir()
+            base = context_dir or Path.cwd()
+            for mod in ee.dependencies.modules:
+                src = (base / mod.path).resolve()
+                if not src.is_dir():
+                    raise FileNotFoundError(f"Module directory not found: {mod.path}")
+                shutil.copytree(src, modules_staging / src.name)
+
         result = subprocess.run(
             [runtime, "build", "-t", tag, "-f", "Containerfile", "."],
             cwd=tmp,
         )
         return result.returncode
     finally:
-        import shutil
-
         shutil.rmtree(tmp, ignore_errors=True)

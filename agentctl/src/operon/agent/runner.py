@@ -50,6 +50,10 @@ class AgentRunner:
         for name, input_spec in spec.inputs.items():
             if input_spec.no_log and name in resolved_inputs:
                 redactor.add_secret(str(resolved_inputs[name]))
+        for tool_spec in spec.actions.tools:
+            if tool_spec.config:
+                for value in tool_spec.config.values():
+                    redactor.add_secret(str(value))
 
         if resolved_inputs:
             self.console.print(f"[bold]Inputs:[/] {redactor.redact(resolved_inputs)}")
@@ -114,7 +118,11 @@ class AgentRunner:
 
         for tool_spec in spec.actions.tools:
             if not registry.has_tool(tool_spec.type):
-                registry.register(create_tool(tool_spec.type), approval=tool_spec.approval)
+                registry.register(
+                    create_tool(tool_spec.type),
+                    approval=tool_spec.approval,
+                    config=tool_spec.config or None,
+                )
             elif tool_spec.approval is not None:
                 for fqn in list(registry._action_meta):
                     if fqn.startswith(f"{tool_spec.type}:"):

@@ -27,9 +27,17 @@ class ToolRegistry:
         self._action_index: dict[str, tuple[Tool, str]] = {}
         self._action_meta: dict[str, dict] = {}
         self._approval: dict[str, ApprovalMode | None] = {}
+        self._config: dict[str, dict] = {}
 
-    def register(self, tool: Tool, approval: ApprovalMode | None = None) -> None:
+    def register(
+        self,
+        tool: Tool,
+        approval: ApprovalMode | None = None,
+        config: dict | None = None,
+    ) -> None:
         self._tools[tool.name] = tool
+        if config:
+            self._config[tool.name] = config
         for action in tool.actions():
             fqn = f"{tool.name}:{action['name']}"
             self._action_index[fqn] = (tool, action["name"])
@@ -57,4 +65,5 @@ class ToolRegistry:
         if not entry:
             raise ValueError(f"Unknown action: '{action}'")
         tool, local_name = entry
-        return tool.execute(local_name, params)
+        merged = {**self._config.get(tool.name, {}), **params}
+        return tool.execute(local_name, merged)
