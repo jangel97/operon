@@ -1,0 +1,36 @@
+apiVersion: agents/v1
+kind: Agent
+
+metadata:
+  name: trivia-player
+  version: v1
+
+spec:
+  goal: |
+    Play a trivia game. Fetch {{rounds}} questions one at a time,
+    answer each one, then write your final score and a one-line
+    summary of how you did to {{output_file}}.
+
+  decision:
+    type: llm
+    provider: ollama
+    model: qwen3:14b
+    base_url: http://192.168.1.139:11434/v1
+
+  inputs:
+    rounds:
+      type: integer
+      default: 3
+    output_file:
+      type: string
+      default: /tmp/trivia-results.txt
+
+  actions:
+    tools:
+      - opentdb
+      - file-writer:
+          approval: none
+
+  policy:
+    constraints:
+      max_actions: 15

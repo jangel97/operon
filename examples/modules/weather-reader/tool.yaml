@@ -1,0 +1,11 @@
+name: weather-reader
+runtime: python
+entrypoint: main.py
+actions:
+  - name: get_weather
+    type: read
+    description: Get current weather for a city
+    params:
+      city:
+        type: string
+        required: true

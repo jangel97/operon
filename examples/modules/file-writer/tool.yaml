@@ -1,0 +1,14 @@
+name: file-writer
+runtime: python
+entrypoint: main.py
+actions:
+  - name: write_file
+    type: write
+    description: Write text content to a file
+    params:
+      path:
+        type: string
+        required: true
+      content:
+        type: string
+        required: true

@@ -1,0 +1,11 @@
+name: telegram-sender
+runtime: python
+entrypoint: main.py
+actions:
+  - name: send_message
+    type: write
+    description: Send a message via Telegram bot
+    params:
+      text:
+        type: string
+        required: true

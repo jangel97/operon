@@ -1,0 +1,36 @@
+apiVersion: agents/v1
+kind: Agent
+
+metadata:
+  name: weather-telegram
+  version: v1
+
+spec:
+  goal: |
+    Check the current weather in {{city}} and send a short, friendly
+    summary via Telegram. Include temperature, conditions, and what
+    to wear. Keep the message under 200 characters.
+
+  decision:
+    type: llm
+    provider: ollama
+    model: qwen3:14b
+    base_url: http://192.168.1.138:11434/v1
+
+  inputs:
+    city:
+      type: string
+      default: Madrid
+
+  actions:
+    tools:
+      - weather-reader
+      - telegram-sender:
+          approval: required
+          config:
+            bot_token: ${TELEGRAM_BOT_TOKEN}
+            chat_id: ${TELEGRAM_CHAT_ID}
+
+  policy:
+    constraints:
+      max_actions: 5

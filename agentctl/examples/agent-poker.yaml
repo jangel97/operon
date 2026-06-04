@@ -1,0 +1,40 @@
+apiVersion: agents/v1
+kind: Agent
+
+metadata:
+  name: poker-player
+  version: v1
+
+spec:
+  goal: |
+    Play {{hands}} hands of video poker. For each hand:
+    1. Deal a new hand
+    2. Evaluate your cards and decide which to hold for the best outcome
+    3. Draw replacements
+
+    After all hands, write your total payout and a short summary
+    of each hand to {{output_file}}.
+
+  decision:
+    type: llm
+    provider: ollama
+    model: qwen3:14b
+    base_url: http://192.168.1.139:11434/v1
+
+  inputs:
+    hands:
+      type: integer
+      default: 3
+    output_file:
+      type: string
+      default: /tmp/poker-results.txt
+
+  actions:
+    tools:
+      - video-poker
+      - file-writer:
+          approval: none
+
+  policy:
+    constraints:
+      max_actions: 15

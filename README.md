@@ -1,5 +1,7 @@
 # Operon
 
+THIS IS A PILOT.
+
 **Agentic Automation Platform** — define goals, not procedures.
 
 Operon lets you define autonomous agents in YAML. You declare the goal and the tools — the agent figures out the steps. A deterministic policy layer enforces what the agent can and can't do before anything executes.

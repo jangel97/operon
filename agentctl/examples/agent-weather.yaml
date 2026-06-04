@@ -2,26 +2,38 @@ apiVersion: agents/v1
 kind: Agent
 
 metadata:
-  name: weather-checker
+  name: weather-reporter
   version: v1
 
 spec:
   goal: |
-    Find out the weather forecast for tomorrow in Madrid, Spain.
-    Check current conditions, get the forecast, and check for any
-    weather alerts. Summarize findings when done.
+    Check the current weather in {{city_a}} and {{city_b}}.
+    Compare the two and write a short report (under 300 chars)
+    to {{output_file}}. Include temperature, conditions, and
+    which city is warmer.
 
   decision:
     type: llm
     provider: ollama
     model: qwen3:14b
-    base_url: http://192.168.1.138:11434/v1
+    base_url: http://192.168.1.139:11434/v1
 
-  inputs: {}
+  inputs:
+    city_a:
+      type: string
+      default: Madrid
+    city_b:
+      type: string
+      default: London
+    output_file:
+      type: string
+      default: /tmp/weather-report.txt
 
   actions:
     tools:
-      - weather
+      - weather-reader
+      - file-writer:
+          approval: none
 
   policy:
     constraints:

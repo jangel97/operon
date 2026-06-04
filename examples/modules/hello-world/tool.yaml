@@ -1,0 +1,11 @@
+name: hello-world
+runtime: python
+entrypoint: main.py
+actions:
+  - name: greet
+    type: read
+    description: Greet someone by name
+    params:
+      name:
+        type: string
+        default: World

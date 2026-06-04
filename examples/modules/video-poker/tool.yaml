@@ -1,0 +1,15 @@
+name: video-poker
+runtime: python
+entrypoint: main.py
+actions:
+  - name: deal
+    type: read
+    description: Deal a new 5-card poker hand
+    params: {}
+  - name: draw
+    type: read
+    description: Hold selected cards and draw replacements. Provide positions (1-5) of cards to hold.
+    params:
+      hold:
+        type: string
+        required: true
