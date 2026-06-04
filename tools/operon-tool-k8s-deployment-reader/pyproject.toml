@@ -1,0 +1,16 @@
+[project]
+name = "operon-tool-k8s-deployment-reader"
+version = "0.1.0"
+description = "Operon tool — read Kubernetes deployment status and details"
+requires-python = ">=3.11"
+dependencies = [
+    "operon>=0.1.0",
+    "operon-tool-k8s-base>=0.1.0",
+]
+
+[project.entry-points."operon.tools"]
+k8s-deployment-reader = "operon_tool_k8s_deployment_reader:K8sDeploymentReaderTool"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

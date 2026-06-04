@@ -1,0 +1,16 @@
+[project]
+name = "operon-tool-k8s-restarter"
+version = "0.1.0"
+description = "Operon tool — restart Kubernetes deployments via rolling update"
+requires-python = ">=3.11"
+dependencies = [
+    "operon>=0.1.0",
+    "operon-tool-k8s-base>=0.1.0",
+]
+
+[project.entry-points."operon.tools"]
+k8s-restarter = "operon_tool_k8s_restarter:K8sRestarterTool"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

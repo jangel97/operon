@@ -1,0 +1,16 @@
+[project]
+name = "operon-tool-k8s-namespace-reader"
+version = "0.1.0"
+description = "Operon tool — list Kubernetes namespaces"
+requires-python = ">=3.11"
+dependencies = [
+    "operon>=0.1.0",
+    "operon-tool-k8s-base>=0.1.0",
+]
+
+[project.entry-points."operon.tools"]
+k8s-namespace-reader = "operon_tool_k8s_namespace_reader:K8sNamespaceReaderTool"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

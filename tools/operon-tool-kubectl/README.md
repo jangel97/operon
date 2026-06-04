@@ -1,4 +1,6 @@
-# operon-tool-kubectl
+# operon-tool-kubectl (deprecated)
+
+> **Deprecated:** This monolithic tool has been replaced by granular k8s tools: `k8s-pod-reader`, `k8s-log-reader`, `k8s-event-reader`, `k8s-deployment-reader`, `k8s-service-reader`, `k8s-node-reader`, `k8s-namespace-reader`, `k8s-pod-deleter`, `k8s-scaler`, `k8s-restarter`. See `tools/docs/tool-design.md` for the design rationale.
 
 Kubernetes operations via kubectl. Intent-based — the LLM picks operations, the tool builds and executes the actual commands.
 
