@@ -80,9 +80,42 @@ flowchart LR
     style OUTPUT fill:#ffe,stroke:#333
 ```
 
+## Tool Design Philosophy
+
+Operon is opinionated about tools: **each tool should do one thing, and its blast radius should be obvious from the name.**
+
+The operator controls what an agent can do by choosing which tools to install — not by editing policy whitelists. If the operator doesn't install a write tool, the agent can't write. Policy exists as defense-in-depth, not as the primary control.
+
+```
+Good: fine-grained, obvious blast radius
+├── operon-tool-k8s-reader        # pods, logs, events — can't break anything
+├── operon-tool-k8s-scaler        # scale deployments — clearly a write tool
+├── operon-tool-k8s-restarter     # rolling restarts only
+├── operon-tool-github-reader     # issues, PRs, releases — read-only
+├── operon-tool-github-triage     # add labels, comment — lightweight writes
+└── operon-tool-github-merge      # merge PRs — powerful, opt-in
+
+Bad: broad tools that hide dangerous operations
+└── operon-tool-kubectl           # 14 operations, mix of read and write
+```
+
+### Why fine-grained?
+
+1. **Install = opt-in.** The operator installs `k8s-reader` for an investigator agent. No risk of accidental writes — the tool simply can't do them.
+2. **Auditable from the outside.** `pip list | grep operon-tool` shows exactly what an agent can do. No need to read YAML policy to understand the blast radius.
+3. **Composable.** An incident response recipe depends on `k8s-reader` + `k8s-restarter`. A monitoring recipe depends on `k8s-reader` only. Each recipe declares the minimum tools it needs.
+4. **Community-friendly.** Tool authors build small, focused packages. Reviewers can audit a 50-line tool, not a 500-line Swiss Army knife.
+
+### Guidelines for tool authors
+
+- **One concern per tool.** A tool that reads and writes is two tools.
+- **Name reveals intent.** `k8s-reader`, not `k8s`. `github-merge`, not `github`.
+- **Default to read-only.** Most tools should be read-only. Write tools are separate packages that operators install deliberately.
+- **Minimal surface area.** Fewer actions = easier to audit, easier to trust.
+
 ## Plugin System
 
-Tools are separate pip packages discovered automatically via Python entry points.
+Tools are separate packages discovered automatically via Python entry points.
 
 ```mermaid
 flowchart TD
@@ -92,49 +125,106 @@ flowchart TD
     end
 
     subgraph PLUGINS ["Tool Plugins (pip packages)"]
-        KUBECTL["operon-tool-kubectl\n14 operations\nread/write tagged"]
+        K8S_READ["operon-tool-k8s-reader\nget pods, logs, events\nread only"]
+        K8S_SCALE["operon-tool-k8s-scaler\nscale deployments\nwrite"]
         WEBSEARCH["operon-tool-websearch\nDuckDuckGo search\nHTTP fetch"]
-        WEATHER["operon-tool-weather\nMock data\nFor testing"]
         CUSTOM["operon-tool-???\nYour custom tool"]
     end
 
-    EP --> KUBECTL
+    EP --> K8S_READ
+    EP --> K8S_SCALE
     EP --> WEBSEARCH
-    EP --> WEATHER
     EP --> CUSTOM
-    KUBECTL --> REGISTRY2
+    K8S_READ --> REGISTRY2
+    K8S_SCALE --> REGISTRY2
     WEBSEARCH --> REGISTRY2
-    WEATHER --> REGISTRY2
     CUSTOM --> REGISTRY2
 
     style AGENTCTL fill:#e8f4fd,stroke:#333
     style PLUGINS fill:#f0f0f0,stroke:#333
 ```
 
-## Policy Enforcement
+## Credential Model
 
-Tools define capability, policy defines permissions. Single source of truth.
+Tools consume their own credentials. The agent spec handles configuration (LLM endpoints, input defaults) — not tool authentication.
 
 ```mermaid
 flowchart TD
-    TOOL_DEF["Tool defines operations\nget_pods (read)\ndelete_pod (write)\nscale_deployment (write)"]
+    subgraph AGENT_SPEC ["Agent Spec (YAML)"]
+        ENV_INTERP["${ENV_VAR} interpolation\nLLM base_url, input defaults"]
+    end
 
-    POLICY_DEF["Policy defines permissions\nallowed_actions:\n  - kubectl:get_pods\n  - kubectl:delete_pod"]
+    subgraph RUNTIME ["agentctl Runtime"]
+        RUNNER["AgentRunner\nResolves ${ENV_VAR}\nBuilds tool registry"]
+        LOOP["AgentLoop\nLLM decides what to do"]
+        REDACTOR["Redactor\nno_log values → ***REDACTED***"]
+    end
 
-    TOOL_DEF --> FILTER["Filter: only allowed\nactions shown to LLM"]
-    POLICY_DEF --> FILTER
+    subgraph TOOLS ["Tool Plugins (own their credentials)"]
+        KUBECTL["kubectl tool\nReads kubeconfig"]
+        GITHUB["github tool\nUses gh auth state"]
+        CUSTOM["custom tool\nOwn auth mechanism"]
+    end
 
-    FILTER --> LLM_SEES["LLM sees:\n kubectl:get_pods\n kubectl:delete_pod"]
+    subgraph CREDS ["System Credentials (never touch the LLM)"]
+        KUBECONFIG["~/.kube/config\nKUBECONFIG"]
+        GH_AUTH["gh auth state\nGH_TOKEN"]
+        CUSTOM_CRED["env vars / config files\ntoken files"]
+    end
 
-    LLM_SEES -->|picks| ACTION["kubectl:delete_pod"]
+    ENV_INTERP --> RUNNER
+    RUNNER --> LOOP
+    LOOP -->|"action + params\n(no credentials)"| KUBECTL
+    LOOP -->|"action + params"| GITHUB
+    LOOP -->|"action + params"| CUSTOM
+    LOOP --> REDACTOR
 
-    ACTION --> MODE_CHECK{"Policy Mode?"}
-    MODE_CHECK -->|read_only| BLOCK["Blocked\n(write operation)"]
-    MODE_CHECK -->|approval_required| ASK["Ask operator"]
-    MODE_CHECK -->|autonomous| RUN["Execute"]
-    ASK -->|approved| RUN
-    ASK -->|rejected| BLOCK
+    KUBECONFIG -.->|"read at exec time"| KUBECTL
+    GH_AUTH -.->|"read at exec time"| GITHUB
+    CUSTOM_CRED -.->|"read at exec time"| CUSTOM
 
-    style BLOCK fill:#fbb,stroke:#333
-    style RUN fill:#bfb,stroke:#333
+    style CREDS fill:#ffe0e0,stroke:#333
+    style TOOLS fill:#e0f0ff,stroke:#333
+    style AGENT_SPEC fill:#f0f0f0,stroke:#333
 ```
+
+The LLM decides **what** to do (action + params). The tool decides **how** to authenticate. Credentials are resolved at execution time by the tool itself — the agent spec has no `credentials` field and no way to inject auth into a tool.
+
+## Safety Model
+
+Safety comes from three layers: tool selection, per-tool approval, and constraints.
+
+```mermaid
+flowchart TD
+    SPEC["Agent Spec\nactions:\n  collections: [k8s-readonly]\n  tools:\n    - k8s-restarter:\n        approval: required"]
+
+    SPEC --> INSTALLED{"Tools\ninstalled?"}
+    INSTALLED -->|not installed| CANT["Agent can't start\nMissing dependency"]
+    INSTALLED -->|installed| REGISTRY["Build tool registry\nAll actions from listed\ntools + collections"]
+
+    REGISTRY --> LLM["LLM picks action"]
+    LLM --> APPROVAL{"Approval\nrequired?"}
+    APPROVAL -->|"read tool\n(default: none)"| EXECUTE["Execute"]
+    APPROVAL -->|"write tool\n(default: required)"| ASK["Ask operator"]
+    APPROVAL -->|"explicit override"| CHECK_OVERRIDE{"approval\nsetting?"}
+    CHECK_OVERRIDE -->|none| EXECUTE
+    CHECK_OVERRIDE -->|required| ASK
+
+    ASK -->|approved| EXECUTE
+    ASK -->|rejected| DENIED["Denied\nFeed back to LLM"]
+
+    EXECUTE --> CONSTRAINTS{"Constraints\ncheck"}
+    CONSTRAINTS -->|"max_actions\nexceeded"| STOP["Stop agent"]
+    CONSTRAINTS -->|ok| RESULT["Record result\nFeed back to LLM"]
+
+    style CANT fill:#fbb,stroke:#333
+    style DENIED fill:#fbb,stroke:#333
+    style STOP fill:#fbb,stroke:#333
+    style EXECUTE fill:#bfb,stroke:#333
+```
+
+**Layer 1: Tool selection.** The agent lists tools and collections in `actions`. If a tool isn't listed, the LLM never sees it. If it's not installed, the agent can't start.
+
+**Layer 2: Per-tool approval.** Each tool can set `approval: required` or `approval: none`. Defaults: read tools → none, write tools → required. The approval decision lives next to the tool, not in a separate policy block.
+
+**Layer 3: Constraints.** Hard limits — `max_actions` caps total actions per run, `denied_patterns` blocks specific patterns via regex. Defense-in-depth.

@@ -1,0 +1,39 @@
+apiVersion: agents/v1
+kind: Agent
+
+metadata:
+  name: {{ name }}
+  version: v1
+
+spec:
+  goal: |
+    You are a panelist in a discussion. The question or prompt is:
+
+    {{ '{{question}}' }}
+
+    Research if needed using websearch, then deliver your response using
+    respond:respond.
+
+    If the prompt includes what other panelists have argued, engage with
+    their arguments directly — challenge, build on, or refute them.
+
+    Keep your response concise (2-3 paragraphs max). After responding, declare done.
+
+  decision:
+    type: llm
+    provider: ollama
+    model: {{ model }}
+    base_url: {{ ollama_base_url }}
+
+  inputs:
+    question:
+      type: string
+
+  actions:
+    tools:
+      - respond
+      - websearch
+
+  policy:
+    constraints:
+      max_actions: 5

@@ -4,6 +4,14 @@ Community-shared, reusable agent specs. Like Ansible Galaxy, but for autonomous 
 
 > **Status:** This is a design document for a planned feature. The concepts below describe the target architecture — none of this is implemented yet.
 
+## Philosophy
+
+Operon is opinionated: the AI is not in charge — there is always an operator (the director) behind it. The operator selects the agent spec, configures the tools, sets the policy, and decides what the AI is allowed to do. The AI reasons and picks actions; the operator controls the environment it runs in.
+
+Tools are the operator's responsibility, and Operon is opinionated about how they should be built: **each tool does one thing, and its blast radius is obvious from the name.** The operator controls what an agent can do by choosing which tools to install. If you don't install a write tool, the agent can't write — no policy misconfiguration possible.
+
+The ecosystem of ready-made, fine-grained tools covers common cases: `k8s-reader` for cluster inspection, `github-reader` for issue triage, `websearch` for research. When the ecosystem doesn't cover a use case, operators build custom tools — the plugin system makes this straightforward. The agent spec never changes; the tool ecosystem around it grows.
+
 ## Concept
 
 A recipe is a portable agent definition — goal, tools, policy, and inputs — that anyone can install and run. The YAML spec is the contract: you can read exactly what the agent does and what it's allowed to do before running it.
@@ -49,30 +57,71 @@ agentctl run k8s-incident-response -e namespace=production
 # Change mode from "autonomous" to "read_only" or "approval_required"
 ```
 
-## Policy as a Trust Boundary
+## Why Recipes are Portable
 
-This is what makes recipes safe to share. Unlike Ansible Galaxy where you run arbitrary Python, an Operon recipe's blast radius is visible in the YAML:
+Agent specs are declarative — they describe **what** to do, not **how** to authenticate. Credentials live in the tool layer, not the spec.
+
+```
+┌─────────────────────────────────────────────────┐
+│  Recipe (YAML)                                  │
+│  ✓ goal, tools, policy, inputs                  │
+│  ✗ no credentials, no endpoints, no config      │
+│  → shareable, auditable, version-controlled      │
+└────────────────────┬────────────────────────────┘
+                     │ references
+┌────────────────────▼────────────────────────────┐
+│  Tool Plugins (installed separately)            │
+│  kubectl → reads kubeconfig at exec time        │
+│  github  → reads gh auth state at exec time     │
+│  aws     → reads ~/.aws/credentials at exec time│
+└─────────────────────────────────────────────────┘
+```
+
+The same recipe runs against any cluster, any GitHub org, any AWS account — the operator controls **where** by configuring the tools on their machine. The recipe author controls **what** the agent does and what it's allowed to do.
+
+## Safety Model
+
+Safety comes from two layers. The first is the most important.
+
+### Layer 1: Tool selection (install = opt-in)
+
+The operator controls blast radius by choosing which tools to install. Fine-grained tools make this intuitive:
+
+```bash
+# Read-only investigation — install only readers
+pip install operon-tool-k8s-reader operon-tool-github-reader
+
+# Incident response — add the restarter deliberately
+pip install operon-tool-k8s-restarter
+```
+
+The recipe declares what tools it needs. The operator decides what to install. If a recipe asks for `k8s-scaler` and the operator doesn't install it, the agent simply can't scale — no YAML editing required.
+
+### Layer 2: Per-tool approval + constraints
+
+The agent spec controls approval per tool and sets hard limits:
 
 ```yaml
+actions:
+  collections:
+    - k8s-readonly                       # readers, no approval
+  tools:
+    - k8s-restarter:
+        approval: required               # human confirms restarts
+
 policy:
-  mode: autonomous
-  allowed_actions:
-    - kubectl:get_pods
-    - kubectl:get_logs
-    - kubectl:describe_pod
-    - kubectl:rollout_restart    # write operation
   constraints:
     max_actions: 10
 ```
 
 An operator can:
 
-- **Inspect before running** — the spec declares every action the agent can take
-- **Tighten the policy** — switch from `autonomous` to `approval_required` or `read_only`
-- **Remove write actions** — delete `kubectl:rollout_restart` from `allowed_actions`
+- **Inspect before running** — the spec lists every tool and collection
+- **Set approval per tool** — write tools require approval, read tools don't
 - **Add constraints** — lower `max_actions`, add `denied_patterns`
+- **Remove tools** — delete a tool from the list to revoke that capability
 
-The recipe author defines the recommended policy. The operator has final say.
+The recipe author defines the recommended setup. The operator has final say.
 
 ## Recipe Categories
 

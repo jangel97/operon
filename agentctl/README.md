@@ -211,9 +211,27 @@ decision:
 
 If `extractor` is omitted, the agent works exactly as before — the main model handles everything.
 
-## Secrets and Credentials
+## Credentials
 
-Agent specs support `${ENV_VAR}` interpolation in any string value. This keeps secrets out of YAML files.
+Credentials in Operon live at two levels. The agent spec never passes credentials to tools — each tool manages its own authentication independently.
+
+### Tool credentials (authentication)
+
+Tools consume their own credentials. The agent and the LLM never see them.
+
+| Tool | Credential source | Setup |
+|------|-------------------|-------|
+| `kubectl` | kubeconfig (`~/.kube/config` or `KUBECONFIG`) | `kubectl` configured for target cluster |
+| `github` | `gh` CLI auth state | `gh auth login` |
+| `websearch` | None (public API) | — |
+
+This is a security boundary: tool credentials are resolved at execution time by the tool itself, using standard system-level mechanisms (config files, environment variables, CLI auth state). The LLM decides **what** to do; the tool decides **how** to authenticate. The agent spec has no `credentials` field and no way to inject auth into a tool.
+
+When creating a custom tool, handle authentication in your `execute()` method using whatever mechanism is appropriate (environment variables, config files, token files). The runtime will not pass credentials to you.
+
+### Agent-level interpolation (configuration)
+
+Agent specs support `${ENV_VAR}` interpolation in any string value. This is for agent configuration (LLM endpoints, input defaults) — not for tool authentication.
 
 ```yaml
 decision:
@@ -225,8 +243,6 @@ inputs:
     no_log: true                              # redacted from all output
     default: ${DB_PASSWORD:-}                 # optional — empty string if not set
 ```
-
-### Environment variable syntax
 
 | Syntax | Behavior |
 |--------|----------|
@@ -413,60 +429,74 @@ src/operon/
 
 ## Tools (Plugin System)
 
-Tools are **separate pip packages** — agentctl ships with no tools bundled. It discovers installed tools automatically via Python entry points.
+Tools are **separate packages** — agentctl ships with no tools bundled. It discovers installed tools automatically via Python entry points.
+
+### Design principle: fine-grained tools
+
+Each tool should do one thing, and its blast radius should be obvious from the name. The operator controls what an agent can do by choosing which tools to install — not by editing policy whitelists.
 
 ```
 operon/
-├── agentctl/                        # runtime (no tools)
+├── agentctl/                          # runtime (no tools)
 └── tools/
-    ├── operon-tool-kubectl/         # Kubernetes (real kubectl)
-    ├── operon-tool-github/          # GitHub (issues, PRs, CI via gh CLI)
-    ├── operon-tool-websearch/       # Web search + fetch
-    └── operon-tool-weather/         # Weather (mock)
+    ├── operon-tool-k8s-reader/        # pods, logs, events — read-only
+    ├── operon-tool-k8s-scaler/        # scale deployments — write
+    ├── operon-tool-k8s-restarter/     # rolling restarts — write
+    ├── operon-tool-github-reader/     # issues, PRs, releases — read-only
+    ├── operon-tool-github-triage/     # labels, comments — lightweight writes
+    ├── operon-tool-websearch/         # web search + fetch
+    └── operon-tool-weather/           # weather (mock)
 ```
+
+**Install = opt-in.** If the operator installs `k8s-reader`, the agent can inspect clusters. If they also install `k8s-restarter`, the agent can do rolling restarts. No write tool installed = no writes possible.
 
 ### Installing a tool
 
 ```bash
-pip install -e tools/operon-tool-kubectl
+pip install operon-tool-k8s-reader
 ```
 
 Once installed, agentctl discovers it automatically — no configuration needed.
 
 ### Namespaced actions
 
-Actions are namespaced as `tool:operation`. Tools define **capability** (what operations exist), policy defines **permissions** (which operations this agent can use). This is the single source of truth — no duplicated control.
+Actions are namespaced as `tool:operation`. Tools define **capability** (what operations exist), policy defines **permissions** as defense-in-depth.
 
 ```yaml
 tools:
-  - name: kubectl
-    type: kubectl              # tool defines all its operations
+  - name: k8s-reader
+    type: k8s-reader
 
 policy:
-  allowed_actions:             # policy controls which ones this agent can use
-    - kubectl:get_pods
-    - kubectl:describe_pod
-    - kubectl:get_logs
+  allowed_actions:
+    - k8s-reader:get_pods
+    - k8s-reader:describe_pod
+    - k8s-reader:get_logs
 ```
 
 The LLM decides:
 ```json
-{"action": "kubectl:get_pods", "params": {"namespace": "production"}}
+{"action": "k8s-reader:get_pods", "params": {"namespace": "production"}}
 ```
 
 The tool executes: `kubectl get pods -n production -o json`
 
-Operations are tagged as `read` or `write`. Write operations are **never exposed** unless explicitly listed in `allowed_actions`.
-
 ### Creating a new tool
 
-1. Create a new package (e.g., `operon-tool-aws/`):
+Before writing a tool, decide its scope. Follow these guidelines:
+
+- **One concern per tool.** A tool that reads and writes is two tools.
+- **Name reveals intent.** `aws-ec2-reader`, not `aws`. `postgres-backup`, not `postgres`.
+- **Default to read-only.** Most tools should be read-only. Write tools are separate packages that operators install deliberately.
+- **Minimal surface area.** Fewer actions = easier to audit, easier to trust.
+
+1. Create a new package (e.g., `operon-tool-aws-ec2-reader/`):
 
 ```
-operon-tool-aws/
+operon-tool-aws-ec2-reader/
 ├── pyproject.toml
 └── src/
-    └── operon_tool_aws/
+    └── operon_tool_aws_ec2_reader/
         ├── __init__.py
         └── tool.py
 ```
@@ -476,10 +506,10 @@ operon-tool-aws/
 ```python
 from operon.tools.base import Tool
 
-class AwsTool(Tool):
+class AwsEc2ReaderTool(Tool):
     @property
     def name(self) -> str:
-        return "aws"
+        return "aws-ec2-reader"
 
     def actions(self) -> list[dict]:
         return [
@@ -500,20 +530,20 @@ class AwsTool(Tool):
 3. Export it in `__init__.py`:
 
 ```python
-from operon_tool_aws.tool import AwsTool
-__all__ = ["AwsTool"]
+from operon_tool_aws_ec2_reader.tool import AwsEc2ReaderTool
+__all__ = ["AwsEc2ReaderTool"]
 ```
 
 4. Register via entry point in `pyproject.toml`:
 
 ```toml
 [project]
-name = "operon-tool-aws"
+name = "operon-tool-aws-ec2-reader"
 version = "0.1.0"
 dependencies = ["operon>=0.1.0"]
 
 [project.entry-points."operon.tools"]
-aws = "operon_tool_aws:AwsTool"
+aws-ec2-reader = "operon_tool_aws_ec2_reader:AwsEc2ReaderTool"
 
 [build-system]
 requires = ["hatchling"]
@@ -528,8 +558,8 @@ pip install -e .
 
 ```yaml
 tools:
-  - name: aws
-    type: aws
+  - name: aws-ec2-reader
+    type: aws-ec2-reader
 ```
 
 agentctl will discover it on next run. No changes to agentctl code needed.
