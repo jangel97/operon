@@ -1,0 +1,17 @@
+version: 1
+
+build:
+  base_image: python:3.12-slim
+
+dependencies:
+  tools:
+    - k8s-pod-reader
+    - k8s-log-reader
+    - k8s-event-reader
+  collections:
+    - github-triage
+  python:
+    - requests>=2.31
+  system:
+    - curl
+    - jq
