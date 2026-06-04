@@ -13,8 +13,9 @@ from operon.agent.spec import AgentDefinition, AgentSpec
 from operon.agent.trace import ExecutionTrace
 from operon.decision import create_provider
 from operon.policy.engine import PolicyEngine
-from operon.tools import create_tool
+from operon.tools import create_tool, _discover_tools, _tools
 from operon.tools.base import ToolRegistry
+from operon.tools.collections import resolve_collection
 
 
 class AgentRunner:
@@ -36,7 +37,6 @@ class AgentRunner:
         spec = definition.spec
 
         self.console.print(f"[bold]Agent:[/] {definition.metadata.name} ({definition.metadata.version})")
-        self.console.print(f"[bold]Mode:[/] {spec.policy.mode}")
         self.console.print(f"[bold]Provider:[/] {spec.decision.provider}/{spec.decision.model}")
         if spec.decision.extractor:
             ext = spec.decision.extractor
@@ -69,7 +69,7 @@ class AgentRunner:
             decision_engine.set_extractor(create_provider(ext_provider, **ext_kwargs))
 
         tool_registry = self._build_tool_registry(spec)
-        policy_engine = PolicyEngine(spec.policy)
+        policy_engine = PolicyEngine(spec.policy, tool_registry)
 
         goal = spec.goal
         for key, value in resolved_inputs.items():
@@ -102,6 +102,22 @@ class AgentRunner:
 
     def _build_tool_registry(self, spec: AgentSpec) -> ToolRegistry:
         registry = ToolRegistry()
-        for tool_spec in spec.tools:
-            registry.register(create_tool(tool_spec.type))
+
+        _discover_tools()
+        known = set(_tools.keys())
+
+        for coll_spec in spec.actions.collections:
+            tool_types = resolve_collection(coll_spec.name, known_tools=known)
+            for tool_type in tool_types:
+                if not registry.has_tool(tool_type):
+                    registry.register(create_tool(tool_type), approval=coll_spec.approval)
+
+        for tool_spec in spec.actions.tools:
+            if not registry.has_tool(tool_spec.type):
+                registry.register(create_tool(tool_spec.type), approval=tool_spec.approval)
+            elif tool_spec.approval is not None:
+                for fqn in list(registry._action_meta):
+                    if fqn.startswith(f"{tool_spec.type}:"):
+                        registry.set_approval(fqn, tool_spec.approval)
+
         return registry

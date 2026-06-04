@@ -3,7 +3,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from operon.agent.spec import PolicyMode, PolicySpec
+from operon.agent.spec import ApprovalMode, PolicySpec
+from operon.tools.base import ToolRegistry
 
 
 @dataclass
@@ -14,8 +15,9 @@ class PolicyResult:
 
 
 class PolicyEngine:
-    def __init__(self, policy: PolicySpec) -> None:
+    def __init__(self, policy: PolicySpec, tool_registry: ToolRegistry) -> None:
         self.policy = policy
+        self.tool_registry = tool_registry
         self.action_count = 0
         self._denied_re = [
             re.compile(p) for p in self.policy.constraints.denied_patterns
@@ -33,20 +35,6 @@ class PolicyEngine:
                 reason=f"Max actions limit reached ({self.policy.constraints.max_actions})",
             )
 
-        if self.policy.allowed_actions and action not in self.policy.allowed_actions:
-            return PolicyResult(
-                allowed=False,
-                reason=f"Action '{action}' is not in allowed_actions: {self.policy.allowed_actions}",
-            )
-
-        action_type = (action_meta or {}).get("type", "read")
-
-        if self.policy.mode == PolicyMode.READ_ONLY and action_type == "write":
-            return PolicyResult(
-                allowed=False,
-                reason=f"Action '{action}' is a write operation (policy mode: read_only)",
-            )
-
         if params and self._denied_re:
             command = params.get("command", "")
             for pattern in self._denied_re:
@@ -56,9 +44,13 @@ class PolicyEngine:
                         reason=f"Command matches denied pattern: {pattern.pattern}",
                     )
 
-        requires_approval = self.policy.mode == PolicyMode.APPROVAL_REQUIRED
-        if not requires_approval and action_type == "write" and self.policy.mode != PolicyMode.AUTONOMOUS:
-            requires_approval = True
+        action_type = (action_meta or {}).get("type", "read")
+        explicit_approval = self.tool_registry.get_approval(action)
+
+        if explicit_approval is not None:
+            requires_approval = explicit_approval == ApprovalMode.REQUIRED
+        else:
+            requires_approval = action_type == "write"
 
         return PolicyResult(allowed=True, requires_approval=requires_approval)
 

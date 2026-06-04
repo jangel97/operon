@@ -2,102 +2,99 @@ from __future__ import annotations
 
 import pytest
 
-from operon.agent.spec import ConstraintsSpec, PolicyMode, PolicySpec
+from operon.agent.spec import ApprovalMode, ConstraintsSpec, PolicySpec
 from operon.policy.engine import PolicyEngine, PolicyResult
+from operon.tools.base import Tool, ToolRegistry
+
+
+class FakeTool(Tool):
+    @property
+    def name(self) -> str:
+        return "kubectl"
+
+    def actions(self) -> list[dict]:
+        return [
+            {"name": "get_pods", "type": "read", "description": "List pods", "params": {}},
+            {"name": "delete_pod", "type": "write", "description": "Delete pod", "params": {}},
+        ]
+
+    def execute(self, action: str, params: dict) -> str:
+        return f"executed {action}"
 
 
 def make_engine(
-    mode: PolicyMode = PolicyMode.AUTONOMOUS,
-    allowed_actions: list[str] | None = None,
     max_actions: int = 10,
     denied_patterns: list[str] | None = None,
+    approval: ApprovalMode | None = None,
 ) -> PolicyEngine:
+    registry = ToolRegistry()
+    registry.register(FakeTool(), approval=approval)
     return PolicyEngine(
         PolicySpec(
-            mode=mode,
-            allowed_actions=allowed_actions or [],
             constraints=ConstraintsSpec(
                 max_actions=max_actions,
                 denied_patterns=denied_patterns or [],
             ),
-        )
+        ),
+        tool_registry=registry,
     )
 
 
-# --- Policy modes ---
+# --- Per-action approval ---
 
 
-class TestAutonomousMode:
-    def test_read_action_allowed_without_approval(self):
-        engine = make_engine(mode=PolicyMode.AUTONOMOUS)
+class TestDefaultApproval:
+    def test_read_action_no_approval_by_default(self):
+        engine = make_engine()
         result = engine.check("kubectl:get_pods", action_meta={"type": "read"})
         assert result.allowed is True
         assert result.requires_approval is False
 
-    def test_write_action_allowed_without_approval(self):
-        engine = make_engine(mode=PolicyMode.AUTONOMOUS)
-        result = engine.check("kubectl:delete_pod", action_meta={"type": "write"})
-        assert result.allowed is True
-        assert result.requires_approval is False
-
-
-class TestApprovalRequiredMode:
-    def test_read_action_requires_approval(self):
-        engine = make_engine(mode=PolicyMode.APPROVAL_REQUIRED)
-        result = engine.check("kubectl:get_pods", action_meta={"type": "read"})
-        assert result.allowed is True
-        assert result.requires_approval is True
-
-    def test_write_action_requires_approval(self):
-        engine = make_engine(mode=PolicyMode.APPROVAL_REQUIRED)
+    def test_write_action_requires_approval_by_default(self):
+        engine = make_engine()
         result = engine.check("kubectl:delete_pod", action_meta={"type": "write"})
         assert result.allowed is True
         assert result.requires_approval is True
-
-
-class TestReadOnlyMode:
-    def test_read_action_allowed(self):
-        engine = make_engine(mode=PolicyMode.READ_ONLY)
-        result = engine.check("kubectl:get_pods", action_meta={"type": "read"})
-        assert result.allowed is True
-        assert result.requires_approval is False
-
-    def test_write_action_blocked(self):
-        engine = make_engine(mode=PolicyMode.READ_ONLY)
-        result = engine.check("kubectl:delete_pod", action_meta={"type": "write"})
-        assert result.allowed is False
-        assert "write operation" in result.reason
 
     def test_unknown_type_defaults_to_read(self):
-        engine = make_engine(mode=PolicyMode.READ_ONLY)
+        engine = make_engine()
         result = engine.check("kubectl:get_pods", action_meta={})
         assert result.allowed is True
+        assert result.requires_approval is False
 
 
-# --- Allowed actions ---
-
-
-class TestAllowedActions:
-    def test_action_in_whitelist_allowed(self):
-        engine = make_engine(allowed_actions=["kubectl:get_pods", "kubectl:get_logs"])
-        result = engine.check("kubectl:get_pods")
+class TestExplicitApproval:
+    def test_approval_required_forces_approval_on_read(self):
+        engine = make_engine(approval=ApprovalMode.REQUIRED)
+        result = engine.check("kubectl:get_pods", action_meta={"type": "read"})
         assert result.allowed is True
+        assert result.requires_approval is True
 
-    def test_action_not_in_whitelist_denied(self):
-        engine = make_engine(allowed_actions=["kubectl:get_pods"])
-        result = engine.check("kubectl:delete_pod")
-        assert result.allowed is False
-        assert "not in allowed_actions" in result.reason
-
-    def test_empty_whitelist_allows_all(self):
-        engine = make_engine(allowed_actions=[])
-        result = engine.check("kubectl:anything")
+    def test_approval_none_skips_approval_on_write(self):
+        engine = make_engine(approval=ApprovalMode.NONE)
+        result = engine.check("kubectl:delete_pod", action_meta={"type": "write"})
         assert result.allowed is True
+        assert result.requires_approval is False
 
-    def test_namespaced_format_required(self):
-        engine = make_engine(allowed_actions=["kubectl:get_pods"])
-        result = engine.check("get_pods")
-        assert result.allowed is False
+    def test_approval_required_on_write(self):
+        engine = make_engine(approval=ApprovalMode.REQUIRED)
+        result = engine.check("kubectl:delete_pod", action_meta={"type": "write"})
+        assert result.allowed is True
+        assert result.requires_approval is True
+
+
+class TestPerActionOverride:
+    def test_override_approval_for_specific_action(self):
+        registry = ToolRegistry()
+        registry.register(FakeTool())
+        registry.set_approval("kubectl:delete_pod", ApprovalMode.NONE)
+        engine = PolicyEngine(PolicySpec(), tool_registry=registry)
+
+        read_result = engine.check("kubectl:get_pods", action_meta={"type": "read"})
+        assert read_result.requires_approval is False
+
+        write_result = engine.check("kubectl:delete_pod", action_meta={"type": "write"})
+        assert write_result.requires_approval is False
 
 
 # --- Max actions ---
@@ -158,16 +155,8 @@ class TestDeniedPatterns:
     def test_multiple_patterns(self):
         engine = make_engine(denied_patterns=[r"--force", r"rm\s+-rf"])
         result = engine.check(
-            "kubectl:exec",
+            "kubectl:delete_pod",
             params={"command": "exec pod -- rm -rf /"},
-        )
-        assert result.allowed is False
-
-    def test_regex_pattern(self):
-        engine = make_engine(denied_patterns=[r"namespace\s*=\s*prod.*"])
-        result = engine.check(
-            "kubectl:get_pods",
-            params={"command": "get pods namespace=production"},
         )
         assert result.allowed is False
 
@@ -177,46 +166,15 @@ class TestDeniedPatterns:
         assert result.allowed is True
 
 
-# --- Write actions in non-autonomous modes ---
-
-
-class TestWriteApprovalEscalation:
-    def test_write_in_read_only_blocked(self):
-        engine = make_engine(mode=PolicyMode.READ_ONLY)
-        result = engine.check("kubectl:delete_pod", action_meta={"type": "write"})
-        assert result.allowed is False
-
-    def test_write_in_approval_required_needs_approval(self):
-        engine = make_engine(mode=PolicyMode.APPROVAL_REQUIRED)
-        result = engine.check("kubectl:delete_pod", action_meta={"type": "write"})
-        assert result.allowed is True
-        assert result.requires_approval is True
-
-    def test_write_in_autonomous_no_approval(self):
-        engine = make_engine(mode=PolicyMode.AUTONOMOUS)
-        result = engine.check("kubectl:delete_pod", action_meta={"type": "write"})
-        assert result.allowed is True
-        assert result.requires_approval is False
-
-
-# --- Check order of evaluation ---
+# --- Check order ---
 
 
 class TestCheckOrder:
-    def test_max_actions_checked_before_allowed_actions(self):
-        engine = make_engine(
-            allowed_actions=["kubectl:get_pods"],
-            max_actions=0,
+    def test_max_actions_checked_first(self):
+        engine = make_engine(max_actions=0, denied_patterns=[r"--force"])
+        result = engine.check(
+            "kubectl:get_pods",
+            params={"command": "--force"},
         )
-        result = engine.check("kubectl:get_pods")
         assert result.allowed is False
         assert "Max actions" in result.reason
-
-    def test_allowed_actions_checked_before_mode(self):
-        engine = make_engine(
-            mode=PolicyMode.READ_ONLY,
-            allowed_actions=["kubectl:get_pods"],
-        )
-        result = engine.check("kubectl:delete_pod", action_meta={"type": "write"})
-        assert result.allowed is False
-        assert "not in allowed_actions" in result.reason

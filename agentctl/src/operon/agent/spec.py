@@ -3,13 +3,12 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
-class PolicyMode(StrEnum):
-    AUTONOMOUS = "autonomous"
-    APPROVAL_REQUIRED = "approval_required"
-    READ_ONLY = "read_only"
+class ApprovalMode(StrEnum):
+    REQUIRED = "required"
+    NONE = "none"
 
 
 class ExtractorSpec(BaseModel):
@@ -32,18 +31,49 @@ class InputSpec(BaseModel):
     no_log: bool = False
 
 
-class ToolSpec(BaseModel):
+class ActionToolSpec(BaseModel):
+    type: str
+    approval: ApprovalMode | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_shorthand(cls, data: Any) -> Any:
+        if isinstance(data, str):
+            return {"type": data}
+        if isinstance(data, dict) and len(data) == 1:
+            type_name, config = next(iter(data.items()))
+            if type_name == "type":
+                return data
+            if config is None:
+                return {"type": type_name}
+            if isinstance(config, dict):
+                return {"type": type_name, **config}
+        return data
+
+
+class ActionCollectionSpec(BaseModel):
     name: str
-    type: str
+    approval: ApprovalMode | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_shorthand(cls, data: Any) -> Any:
+        if isinstance(data, str):
+            return {"name": data}
+        if isinstance(data, dict) and len(data) == 1:
+            coll_name, config = next(iter(data.items()))
+            if coll_name == "name":
+                return data
+            if config is None:
+                return {"name": coll_name}
+            if isinstance(config, dict):
+                return {"name": coll_name, **config}
+        return data
 
 
-class TriggerSpec(BaseModel):
-    type: str
-    schedule: str | None = None
-
-
-class ExecutionSpec(BaseModel):
-    trigger: TriggerSpec | None = None
+class ActionsSpec(BaseModel):
+    collections: list[ActionCollectionSpec] = []
+    tools: list[ActionToolSpec] = []
 
 
 class ConstraintsSpec(BaseModel):
@@ -52,8 +82,6 @@ class ConstraintsSpec(BaseModel):
 
 
 class PolicySpec(BaseModel):
-    mode: PolicyMode = PolicyMode.APPROVAL_REQUIRED
-    allowed_actions: list[str] = []
     constraints: ConstraintsSpec = ConstraintsSpec()
 
 
@@ -61,9 +89,8 @@ class AgentSpec(BaseModel):
     goal: str
     decision: DecisionSpec
     inputs: dict[str, InputSpec] = {}
-    tools: list[ToolSpec] = []
+    actions: ActionsSpec = ActionsSpec()
     policy: PolicySpec = PolicySpec()
-    execution: ExecutionSpec | None = None
 
 
 class AgentMetadata(BaseModel):

@@ -23,16 +23,10 @@ spec:
       type: string
       default: "Tarragona, Spain"
 
-  tools:
-    - name: websearch
-      type: websearch
+  actions:
+    tools:
+      - websearch
 
   policy:
-    mode: autonomous
-
-    allowed_actions:
-      - websearch:web_search
-      - websearch:web_fetch
-
     constraints:
       max_actions: 5

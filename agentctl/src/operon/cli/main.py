@@ -125,13 +125,18 @@ def validate(
     warnings: list[str] = []
 
     _discover_tools()
-    for tool_spec in definition.spec.tools:
+    for tool_spec in definition.spec.actions.tools:
         if tool_spec.type not in _tools:
             warnings.append(f"Tool type '{tool_spec.type}' is not installed")
 
-    for action in definition.spec.policy.allowed_actions:
-        if ":" not in action:
-            warnings.append(f"Action '{action}' is not namespaced (expected tool:action)")
+    from operon.tools.collections import resolve_collection
+    for coll_spec in definition.spec.actions.collections:
+        try:
+            tool_types = resolve_collection(coll_spec.name, known_tools=set(_tools.keys()))
+            if not tool_types:
+                warnings.append(f"Collection '{coll_spec.name}' resolved to zero tools")
+        except ValueError as e:
+            warnings.append(str(e))
 
     required_inputs = [
         name for name, inp in definition.spec.inputs.items()
@@ -146,6 +151,104 @@ def validate(
         raise typer.Exit(ExitCode.ERROR)
 
     console.print("[green]All checks passed.[/]")
+
+
+@app.command()
+def install(
+    name: str = typer.Argument(..., help="Tool or collection name to install"),
+) -> None:
+    """Install a tool or collection."""
+    import subprocess
+
+    console = Console()
+
+    collection_pkg = f"operon-collection-{name}"
+    tool_pkg = f"operon-tool-{name}"
+
+    for pkg in [collection_pkg, tool_pkg]:
+        console.print(f"[dim]Trying: pip install {pkg}[/]")
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", pkg],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            console.print(f"[green]Installed:[/] {pkg}")
+            return
+
+    console.print(f"[bold red]Error:[/] Could not find package for '{name}'")
+    console.print(f"  Tried: {collection_pkg}, {tool_pkg}")
+    raise typer.Exit(ExitCode.ERROR)
+
+
+@app.command()
+def build(
+    file: str = typer.Option(
+        "execution-environment.yml",
+        "--file", "-f",
+        help="Path to EE definition file",
+    ),
+    tag: str = typer.Option(
+        "operon-ee:latest",
+        "--tag", "-t",
+        help="Image tag",
+    ),
+    runtime: str = typer.Option(
+        "docker",
+        "--runtime",
+        help="Container runtime: docker or podman",
+    ),
+    generate_only: bool = typer.Option(
+        False,
+        "--generate-only",
+        help="Print the Containerfile without building",
+    ),
+) -> None:
+    """Build an Execution Environment container image."""
+    from pathlib import Path
+
+    from operon.ee.builder import build_image, generate_containerfile
+    from operon.ee.spec import load_ee_definition
+
+    console = Console()
+
+    ee_path = Path(file)
+    if not ee_path.exists():
+        console.print(f"[bold red]Error:[/] EE definition not found: {file}")
+        raise typer.Exit(ExitCode.ERROR)
+
+    try:
+        ee = load_ee_definition(ee_path)
+    except Exception as e:
+        console.print(f"[bold red]Invalid EE definition:[/] {e}")
+        raise typer.Exit(ExitCode.ERROR)
+
+    if runtime not in ("docker", "podman"):
+        console.print(f"[bold red]Error:[/] Unsupported runtime: {runtime}")
+        raise typer.Exit(ExitCode.ERROR)
+
+    if generate_only:
+        console.print(generate_containerfile(ee))
+        return
+
+    console.print(f"[bold]Building EE:[/] {tag}")
+    console.print(f"[dim]Base image:[/] {ee.build.base_image}")
+    console.print(f"[dim]Runtime:[/] {runtime}")
+
+    tool_count = len(ee.dependencies.tools)
+    coll_count = len(ee.dependencies.collections)
+    go_count = len(ee.dependencies.golang)
+    if tool_count or coll_count or go_count:
+        console.print(
+            f"[dim]Dependencies:[/] {tool_count} tools, {coll_count} collections, {go_count} go packages"
+        )
+
+    exit_code = build_image(ee, tag=tag, runtime=runtime)
+    if exit_code != 0:
+        console.print(f"[bold red]Build failed[/] (exit code {exit_code})")
+        raise typer.Exit(ExitCode.ERROR)
+
+    console.print(f"[green]Built:[/] {tag}")
 
 
 @app.command()

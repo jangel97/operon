@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from operon.agent.spec import PolicyMode
+from operon.agent.spec import ApprovalMode
 
 
 class Tool(ABC):
@@ -26,25 +26,28 @@ class ToolRegistry:
         self._tools: dict[str, Tool] = {}
         self._action_index: dict[str, tuple[Tool, str]] = {}
         self._action_meta: dict[str, dict] = {}
+        self._approval: dict[str, ApprovalMode | None] = {}
 
-    def register(self, tool: Tool) -> None:
+    def register(self, tool: Tool, approval: ApprovalMode | None = None) -> None:
         self._tools[tool.name] = tool
         for action in tool.actions():
             fqn = f"{tool.name}:{action['name']}"
             self._action_index[fqn] = (tool, action["name"])
             self._action_meta[fqn] = {**action, "name": fqn}
+            self._approval[fqn] = approval
 
-    def get_actions(
-        self,
-        allowed: list[str] | None = None,
-        policy_mode: PolicyMode = PolicyMode.AUTONOMOUS,
-    ) -> list[dict]:
-        actions = list(self._action_meta.values())
-        if allowed:
-            actions = [a for a in actions if a["name"] in allowed]
-        if policy_mode == PolicyMode.READ_ONLY:
-            actions = [a for a in actions if a.get("type", "read") != "write"]
-        return actions
+    def has_tool(self, name: str) -> bool:
+        return name in self._tools
+
+    def get_actions(self) -> list[dict]:
+        return list(self._action_meta.values())
+
+    def get_approval(self, action: str) -> ApprovalMode | None:
+        return self._approval.get(action)
+
+    def set_approval(self, action: str, approval: ApprovalMode | None) -> None:
+        if action in self._approval:
+            self._approval[action] = approval
 
     def get_action_meta(self, action: str) -> dict:
         return self._action_meta.get(action, {})

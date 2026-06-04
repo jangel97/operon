@@ -1,0 +1,18 @@
+[project]
+name = "operon-collection-k8s-readonly"
+version = "0.1.0"
+description = "Operon collection — all Kubernetes read-only tools"
+requires-python = ">=3.11"
+dependencies = [
+    "operon-tool-k8s-pod-reader>=0.1.0",
+    "operon-tool-k8s-deployment-reader>=0.1.0",
+    "operon-tool-k8s-service-reader>=0.1.0",
+    "operon-tool-k8s-event-reader>=0.1.0",
+    "operon-tool-k8s-log-reader>=0.1.0",
+    "operon-tool-k8s-node-reader>=0.1.0",
+    "operon-tool-k8s-namespace-reader>=0.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

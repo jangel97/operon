@@ -19,17 +19,10 @@ spec:
 
   inputs: {}
 
-  tools:
-    - name: weather
-      type: weather
+  actions:
+    tools:
+      - weather
 
   policy:
-    mode: autonomous
-
-    allowed_actions:
-      - weather:get_current_weather
-      - weather:get_forecast
-      - weather:get_alerts
-
     constraints:
       max_actions: 5

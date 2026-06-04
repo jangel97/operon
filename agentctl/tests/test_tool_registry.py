@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from operon.agent.spec import PolicyMode
+from operon.agent.spec import ApprovalMode
 from operon.tools.base import Tool, ToolRegistry
 
 
@@ -37,10 +37,13 @@ class AnotherTool(Tool):
         return f"executed {action} with {params}"
 
 
-def make_registry(*tools: Tool) -> ToolRegistry:
+def make_registry(*tools_with_approval: tuple[Tool, ApprovalMode | None] | Tool) -> ToolRegistry:
     registry = ToolRegistry()
-    for tool in tools:
-        registry.register(tool)
+    for item in tools_with_approval:
+        if isinstance(item, tuple):
+            registry.register(item[0], approval=item[1])
+        else:
+            registry.register(item)
     return registry
 
 
@@ -69,64 +72,46 @@ class TestNamespacing:
         assert len(actions) == 5
 
 
-# --- Filtering by allowed list ---
+# --- Approval ---
 
 
-class TestAllowedFiltering:
-    def test_filter_by_allowed(self):
+class TestApproval:
+    def test_default_approval_is_none(self):
         registry = make_registry(FakeTool())
-        actions = registry.get_actions(allowed=["kubectl:get_pods"])
-        assert len(actions) == 1
-        assert actions[0]["name"] == "kubectl:get_pods"
+        assert registry.get_approval("kubectl:get_pods") is None
+        assert registry.get_approval("kubectl:delete_pod") is None
 
-    def test_filter_multiple_allowed(self):
+    def test_explicit_approval_stored(self):
+        registry = make_registry((FakeTool(), ApprovalMode.REQUIRED))
+        assert registry.get_approval("kubectl:get_pods") == ApprovalMode.REQUIRED
+        assert registry.get_approval("kubectl:delete_pod") == ApprovalMode.REQUIRED
+
+    def test_approval_none_stored(self):
+        registry = make_registry((FakeTool(), ApprovalMode.NONE))
+        assert registry.get_approval("kubectl:get_pods") == ApprovalMode.NONE
+
+    def test_set_approval_overrides(self):
         registry = make_registry(FakeTool())
-        actions = registry.get_actions(allowed=["kubectl:get_pods", "kubectl:get_logs"])
-        assert len(actions) == 2
+        registry.set_approval("kubectl:delete_pod", ApprovalMode.REQUIRED)
+        assert registry.get_approval("kubectl:get_pods") is None
+        assert registry.get_approval("kubectl:delete_pod") == ApprovalMode.REQUIRED
 
-    def test_no_filter_returns_all(self):
+    def test_unknown_action_approval_returns_none(self):
         registry = make_registry(FakeTool())
-        actions = registry.get_actions(allowed=None)
-        assert len(actions) == 3
-
-    def test_filter_cross_tool(self):
-        registry = make_registry(FakeTool(), AnotherTool())
-        actions = registry.get_actions(
-            allowed=["kubectl:get_pods", "websearch:web_search"]
-        )
-        assert len(actions) == 2
+        assert registry.get_approval("nonexistent:action") is None
 
 
-# --- Filtering by policy mode ---
+# --- has_tool ---
 
 
-class TestPolicyModeFiltering:
-    def test_read_only_hides_write_actions(self):
+class TestHasTool:
+    def test_registered_tool(self):
         registry = make_registry(FakeTool())
-        actions = registry.get_actions(policy_mode=PolicyMode.READ_ONLY)
-        names = [a["name"] for a in actions]
-        assert "kubectl:get_pods" in names
-        assert "kubectl:get_logs" in names
-        assert "kubectl:delete_pod" not in names
+        assert registry.has_tool("kubectl") is True
 
-    def test_autonomous_shows_all(self):
+    def test_unregistered_tool(self):
         registry = make_registry(FakeTool())
-        actions = registry.get_actions(policy_mode=PolicyMode.AUTONOMOUS)
-        assert len(actions) == 3
-
-    def test_approval_required_shows_all(self):
-        registry = make_registry(FakeTool())
-        actions = registry.get_actions(policy_mode=PolicyMode.APPROVAL_REQUIRED)
-        assert len(actions) == 3
-
-    def test_read_only_with_allowed_combines_filters(self):
-        registry = make_registry(FakeTool())
-        actions = registry.get_actions(
-            allowed=["kubectl:get_pods", "kubectl:delete_pod"],
-            policy_mode=PolicyMode.READ_ONLY,
-        )
-        assert len(actions) == 1
-        assert actions[0]["name"] == "kubectl:get_pods"
+        assert registry.has_tool("unknown") is False
 
 
 # --- Action metadata ---

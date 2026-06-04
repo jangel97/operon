@@ -23,22 +23,10 @@ spec:
       type: string
       default: default
 
-  tools:
-    - name: kubectl
-      type: kubectl
+  actions:
+    collections:
+      - k8s-readonly
 
   policy:
-    mode: autonomous
-
-    # Single source of truth — namespaced actions
-    allowed_actions:
-      - kubectl:get_pods
-      - kubectl:describe_pod
-      - kubectl:get_logs
-      - kubectl:get_events
-      - kubectl:get_deployments
-      - kubectl:describe_deployment
-      - kubectl:get_services
-
     constraints:
       max_actions: 10

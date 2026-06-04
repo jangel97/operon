@@ -47,10 +47,7 @@ class AgentLoop:
 
         self.console.print(Panel(self.goal, title="Goal", border_style="green"))
 
-        available_actions = self.tool_registry.get_actions(
-            allowed=self.policy_engine.policy.allowed_actions or None,
-            policy_mode=self.policy_engine.policy.mode,
-        )
+        available_actions = self.tool_registry.get_actions()
 
         for iteration in range(1, MAX_ITERATIONS + 1):
             self.console.print(f"\n[bold]--- Step {iteration} ---[/]")
@@ -90,8 +87,20 @@ class AgentLoop:
                 confidence=action.confidence,
             )
 
-            # 2. Policy check
+            # 2. Validate action exists
             action_meta = self.tool_registry.get_action_meta(action.action)
+            if not action_meta:
+                reason = f"Action '{action.action}' is not available"
+                self.console.print(f"[bold red]Unknown action:[/] {reason}")
+                self.trace.record(EventType.POLICY_CHECK, action=action.action, allowed=False, reason=reason)
+                self.history.append({
+                    "action": action.action,
+                    "params": action.params,
+                    "result": f"DENIED: {reason}",
+                })
+                continue
+
+            # 3. Policy check
             policy_result = self.policy_engine.check(action.action, action.params, action_meta)
 
             self.trace.record(

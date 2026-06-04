@@ -21,21 +21,12 @@ spec:
       type: string
       default: default
 
-  tools:
-    - name: kubernetes
-      type: k8s
+  actions:
+    tools:
+      - k8s-pod-reader
+      - k8s-restarter:
+          approval: required
 
   policy:
-    mode: approval_required
-
-    allowed_actions:
-      - k8s:list_pods
-      - k8s:restart_pod
-
     constraints:
       max_actions: 5
-
-  execution:
-    trigger:
-      type: cron
-      schedule: "*/2 * * * *"
