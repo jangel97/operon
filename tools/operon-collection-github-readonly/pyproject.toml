@@ -1,0 +1,15 @@
+[project]
+name = "operon-collection-github-readonly"
+version = "0.1.0"
+description = "Operon collection — all GitHub read-only tools"
+requires-python = ">=3.11"
+dependencies = [
+    "operon-tool-github-issue-reader>=0.1.0",
+    "operon-tool-github-pr-reader>=0.1.0",
+    "operon-tool-github-release-reader>=0.1.0",
+    "operon-tool-github-ci-reader>=0.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

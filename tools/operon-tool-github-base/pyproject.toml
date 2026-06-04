@@ -1,0 +1,12 @@
+[project]
+name = "operon-tool-github-base"
+version = "0.1.0"
+description = "Shared base for Operon GitHub tools — gh CLI subprocess wrapper"
+requires-python = ">=3.11"
+dependencies = [
+    "operon>=0.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

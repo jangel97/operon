@@ -1,0 +1,16 @@
+[project]
+name = "operon-tool-github-issue-reader"
+version = "0.1.0"
+description = "Operon tool — read GitHub issues"
+requires-python = ">=3.11"
+dependencies = [
+    "operon>=0.1.0",
+    "operon-tool-github-base>=0.1.0",
+]
+
+[project.entry-points."operon.tools"]
+github-issue-reader = "operon_tool_github_issue_reader:GitHubIssueReaderTool"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

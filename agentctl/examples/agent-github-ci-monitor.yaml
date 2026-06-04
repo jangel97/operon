@@ -23,18 +23,13 @@ spec:
       type: string
       default: "jangel97/operon"
 
-  tools:
-    - name: github
-      type: github
+  actions:
+    tools:
+      - github-ci-reader
+      - github-issue-reader
+      - github-issue-manager:
+          approval: required
 
   policy:
-    mode: autonomous
-
-    allowed_actions:
-      - github:list_workflow_runs
-      - github:get_workflow_run
-      - github:list_issues
-      - github:create_issue
-
     constraints:
       max_actions: 10
