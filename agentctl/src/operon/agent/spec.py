@@ -11,10 +11,18 @@ class ApprovalMode(StrEnum):
     NONE = "none"
 
 
+class RouterSpec(BaseModel):
+    model: str
+    provider: str | None = None
+    base_url: str | None = None
+    temperature: float | None = None
+
+
 class ExtractorSpec(BaseModel):
     model: str
     provider: str | None = None
     base_url: str | None = None
+    temperature: float | None = None
 
 
 class DecisionSpec(BaseModel):
@@ -22,6 +30,8 @@ class DecisionSpec(BaseModel):
     provider: str = "openai"
     model: str = "gpt-4o-mini"
     base_url: str | None = None
+    temperature: float | None = None
+    router: RouterSpec | None = None
     extractor: ExtractorSpec | None = None
 
 

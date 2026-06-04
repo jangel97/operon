@@ -42,6 +42,55 @@ flowchart TD
     style DENIED fill:#fbb,stroke:#333
 ```
 
+## Decision Engine — Three-Layer Architecture
+
+The decision engine supports three optional layers, each configurable with its own model, provider, and temperature:
+
+```mermaid
+flowchart LR
+    TOOLS["All Actions\n(from registry)"]
+    ROUTER["Router\n(cheap/fast model)\nFilters relevant actions"]
+    REASONER["Reasoner\n(main model)\nPicks action + params"]
+    EXTRACTOR["Extractor\n(cheap/fast model)\nCleans JSON output"]
+    DECISION["Decision\naction + params\nor done"]
+
+    TOOLS --> ROUTER
+    ROUTER -->|"filtered actions"| REASONER
+    REASONER -->|"raw text"| EXTRACTOR
+    EXTRACTOR --> DECISION
+
+    style ROUTER fill:#ffe0b2,stroke:#333
+    style REASONER fill:#bbdefb,stroke:#333
+    style EXTRACTOR fill:#c8e6c9,stroke:#333
+```
+
+**Router** (optional): A fast model that receives the goal, action names/descriptions, and recent history. Returns a subset of relevant actions. Reduces noise for the reasoner when many tools are registered. Falls back to the full action list on failure.
+
+**Reasoner** (required): The main model. Receives the goal, actions (filtered or full), and execution history. Decides what to do next.
+
+**Extractor** (optional): A fast model that takes the reasoner's raw output and extracts clean JSON. Useful when the reasoner model doesn't reliably produce structured output.
+
+Each layer can have its own `provider`, `model`, `base_url`, and `temperature`:
+
+```yaml
+decision:
+  type: llm
+  provider: ollama
+  model: qwen3:14b
+  base_url: http://192.168.1.139:11434/v1
+  temperature: 0.7
+
+  router:
+    model: qwen3:1.7b
+    temperature: 0.3
+
+  extractor:
+    model: qwen3:1.7b
+    temperature: 0.1
+```
+
+Router and extractor inherit `provider` and `base_url` from the top level if not specified. All layers are optional — the simplest config is just `provider` + `model`, which acts as the reasoner.
+
 ## Data Flow
 
 How data moves through the system, and where redaction happens.
@@ -113,82 +162,112 @@ Bad: broad tools that hide dangerous operations
 - **Default to read-only.** Most tools should be read-only. Write tools are separate packages that operators install deliberately.
 - **Minimal surface area.** Fewer actions = easier to audit, easier to trust.
 
-## Plugin System
+## Tool System
 
-Tools are separate packages discovered automatically via Python entry points.
+Tools are discovered from two sources: **modules** (self-contained directories) and **entry points** (pip packages). Modules take precedence.
+
+### Modules
+
+A module is a directory with a `tool.yaml` manifest and code in Python or Go:
+
+```
+weather-reader/
+├── tool.yaml       # name, runtime, actions, params
+└── main.py         # execute(action, params) -> str
+```
+
+```yaml
+# tool.yaml
+name: weather-reader
+runtime: python          # or golang
+entrypoint: main.py      # or ./binary
+actions:
+  - name: get_weather
+    type: read
+    description: Get current weather for a city
+    params:
+      city: { type: string, required: true }
+```
+
+Modules are discovered from `OPERON_MODULES_PATH` (default: `/usr/lib/operon/modules/`). Python modules are loaded in-process; Go modules communicate via JSON over stdin/stdout.
+
+### Per-Tool Config
+
+Credentials and configuration can be injected into tools via the `config` field in the agent spec. Config values are merged into action params at execution time, so modules receive credentials as params rather than reading environment variables directly.
+
+```yaml
+actions:
+  tools:
+    - telegram-sender:
+        approval: required
+        config:
+          bot_token: ${TELEGRAM_BOT_TOKEN}
+          chat_id: ${TELEGRAM_CHAT_ID}
+```
+
+Config values are automatically added to the redactor so they don't leak in traces.
+
+### Entry Points (fallback)
+
+Tools can also be pip packages discovered via `operon.tools` entry points. This is the original mechanism, kept as a fallback for tools that need Python packaging.
 
 ```mermaid
 flowchart TD
-    subgraph AGENTCTL ["agentctl (runtime)"]
-        REGISTRY2["ToolRegistry"]
-        EP["Entry Points Discovery\noperon.tools group"]
+    subgraph DISCOVERY ["Tool Discovery (priority order)"]
+        MODULES["1. Modules\nOPERON_MODULES_PATH\ntool.yaml + code"]
+        EP["2. Entry Points\noperon.tools group\npip packages"]
     end
 
-    subgraph PLUGINS ["Tool Plugins (pip packages)"]
-        K8S_READ["operon-tool-k8s-reader\nget pods, logs, events\nread only"]
-        K8S_SCALE["operon-tool-k8s-scaler\nscale deployments\nwrite"]
-        WEBSEARCH["operon-tool-websearch\nDuckDuckGo search\nHTTP fetch"]
-        CUSTOM["operon-tool-???\nYour custom tool"]
+    subgraph REGISTRY ["ToolRegistry"]
+        ACTIONS["Namespaced actions\ntool:action_name"]
+        CONFIG["Per-tool config\nmerged into params"]
+        APPROVAL["Per-tool approval\nrequired / none"]
     end
 
-    EP --> K8S_READ
-    EP --> K8S_SCALE
-    EP --> WEBSEARCH
-    EP --> CUSTOM
-    K8S_READ --> REGISTRY2
-    K8S_SCALE --> REGISTRY2
-    WEBSEARCH --> REGISTRY2
-    CUSTOM --> REGISTRY2
+    MODULES --> REGISTRY
+    EP --> REGISTRY
 
-    style AGENTCTL fill:#e8f4fd,stroke:#333
-    style PLUGINS fill:#f0f0f0,stroke:#333
+    style MODULES fill:#c8e6c9,stroke:#333
+    style EP fill:#f0f0f0,stroke:#333
+    style REGISTRY fill:#e8f4fd,stroke:#333
 ```
 
 ## Credential Model
 
-Tools consume their own credentials. The agent spec handles configuration (LLM endpoints, input defaults) — not tool authentication.
+Two credential patterns are supported:
+
+**System credentials** — tools like kubectl and gh read their own auth from the environment (kubeconfig, `GH_TOKEN`). The agent spec doesn't know about these.
+
+**Config injection** — for modules that need credentials (API tokens, chat IDs), the agent spec injects them via the `config` field. Values are resolved from `${ENV_VAR}` at load time, merged into action params at execution time, and automatically redacted from traces.
 
 ```mermaid
 flowchart TD
     subgraph AGENT_SPEC ["Agent Spec (YAML)"]
-        ENV_INTERP["${ENV_VAR} interpolation\nLLM base_url, input defaults"]
+        ENV_INTERP["${ENV_VAR} interpolation\nLLM endpoints, config values"]
     end
 
     subgraph RUNTIME ["agentctl Runtime"]
         RUNNER["AgentRunner\nResolves ${ENV_VAR}\nBuilds tool registry"]
         LOOP["AgentLoop\nLLM decides what to do"]
-        REDACTOR["Redactor\nno_log values → ***REDACTED***"]
+        REDACTOR["Redactor\nno_log + config values\n→ ***REDACTED***"]
     end
 
-    subgraph TOOLS ["Tool Plugins (own their credentials)"]
-        KUBECTL["kubectl tool\nReads kubeconfig"]
-        GITHUB["github tool\nUses gh auth state"]
-        CUSTOM["custom tool\nOwn auth mechanism"]
-    end
-
-    subgraph CREDS ["System Credentials (never touch the LLM)"]
-        KUBECONFIG["~/.kube/config\nKUBECONFIG"]
-        GH_AUTH["gh auth state\nGH_TOKEN"]
-        CUSTOM_CRED["env vars / config files\ntoken files"]
+    subgraph TOOLS ["Tools"]
+        MODULE["Module tool\nReceives creds via params\n(from config injection)"]
+        PLUGIN["Plugin tool\nReads own auth\n(kubeconfig, gh, etc)"]
     end
 
     ENV_INTERP --> RUNNER
     RUNNER --> LOOP
-    LOOP -->|"action + params\n(no credentials)"| KUBECTL
-    LOOP -->|"action + params"| GITHUB
-    LOOP -->|"action + params"| CUSTOM
+    LOOP -->|"action + params\n(config merged in)"| MODULE
+    LOOP -->|"action + params"| PLUGIN
     LOOP --> REDACTOR
 
-    KUBECONFIG -.->|"read at exec time"| KUBECTL
-    GH_AUTH -.->|"read at exec time"| GITHUB
-    CUSTOM_CRED -.->|"read at exec time"| CUSTOM
-
-    style CREDS fill:#ffe0e0,stroke:#333
     style TOOLS fill:#e0f0ff,stroke:#333
     style AGENT_SPEC fill:#f0f0f0,stroke:#333
 ```
 
-The LLM decides **what** to do (action + params). The tool decides **how** to authenticate. Credentials are resolved at execution time by the tool itself — the agent spec has no `credentials` field and no way to inject auth into a tool.
+The LLM decides **what** to do (action + params). It never sees credentials — config values are merged into params by the registry at execution time, after the LLM has made its decision.
 
 ## Safety Model
 

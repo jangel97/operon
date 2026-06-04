@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from operon.agent.spec import DecisionSpec, ExtractorSpec
-from operon.decision.base import LLMProvider, Decision, _EXTRACTOR_PROMPT
+from operon.agent.spec import DecisionSpec, ExtractorSpec, RouterSpec
+from operon.decision.base import LLMProvider, Decision, _EXTRACTOR_PROMPT, _ROUTER_PROMPT
 
 
 class _DummyProvider(LLMProvider):
@@ -204,3 +204,131 @@ class TestSetExtractor:
         a.set_extractor(extractor)
         assert a._extractor is extractor
         assert b._extractor is None
+
+
+SAMPLE_TOOLS = [
+    {"name": "weather:get_weather", "description": "Get weather for a city", "params": {}},
+    {"name": "file-writer:write_file", "description": "Write text to a file", "params": {}},
+    {"name": "kubectl:get_pods", "description": "List pods", "params": {}},
+    {"name": "kubectl:get_logs", "description": "Get pod logs", "params": {}},
+]
+
+
+class TestRouter:
+    def test_set_router(self):
+        main = _DummyProvider("test")
+        router = _DummyProvider("test")
+        assert main._router is None
+        main.set_router(router)
+        assert main._router is router
+
+    def test_router_filters_tools(self):
+        router_response = json.dumps({"actions": ["weather:get_weather"]})
+        router = _DummyProvider(router_response)
+
+        main_response = json.dumps({
+            "done": False,
+            "action": "weather:get_weather",
+            "params": {"city": "Madrid"},
+            "reasoning": "check weather",
+            "confidence": 0.9,
+        })
+        main = _DummyProvider(main_response)
+        main.set_router(router)
+
+        decision = main.decide("check weather", SAMPLE_TOOLS, [])
+        assert not decision.done
+        assert decision.action.action == "weather:get_weather"
+        assert router.call_count == 1
+        assert main.call_count == 1
+
+    def test_router_passes_filtered_tools_to_reasoner(self):
+        router_response = json.dumps({"actions": ["weather:get_weather", "file-writer:write_file"]})
+        router = _DummyProvider(router_response)
+
+        main_response = json.dumps({
+            "done": False,
+            "action": "weather:get_weather",
+            "params": {},
+            "reasoning": "check",
+            "confidence": 0.9,
+        })
+        main = _DummyProvider(main_response)
+        main.set_router(router)
+
+        main.decide("check weather and write report", SAMPLE_TOOLS, [])
+
+        system_msg = main.last_messages[0]["content"]
+        assert "weather:get_weather" in system_msg
+        assert "file-writer:write_file" in system_msg
+        assert "kubectl:get_pods" not in system_msg
+
+    def test_router_receives_goal_and_actions(self):
+        router = _DummyProvider(json.dumps({"actions": ["weather:get_weather"]}))
+        main = _DummyProvider(json.dumps({"done": True, "summary": "done"}))
+        main.set_router(router)
+
+        main.decide("check weather", SAMPLE_TOOLS, [])
+
+        user_msg = router.last_messages[1]["content"]
+        assert "check weather" in user_msg
+        assert "weather:get_weather" in user_msg
+        assert "kubectl:get_pods" in user_msg
+
+    def test_router_fallback_on_empty_response(self):
+        router = _DummyProvider(json.dumps({"actions": []}))
+        main_response = json.dumps({
+            "done": False,
+            "action": "kubectl:get_pods",
+            "params": {},
+            "reasoning": "check",
+            "confidence": 0.9,
+        })
+        main = _DummyProvider(main_response)
+        main.set_router(router)
+
+        decision = main.decide("check pods", SAMPLE_TOOLS, [])
+        assert decision.action.action == "kubectl:get_pods"
+
+    def test_router_fallback_on_error(self):
+        router = _DummyProvider("invalid json garbage")
+        main_response = json.dumps({
+            "done": False,
+            "action": "kubectl:get_pods",
+            "params": {},
+            "reasoning": "check",
+            "confidence": 0.9,
+        })
+        main = _DummyProvider(main_response)
+        main.set_router(router)
+
+        decision = main.decide("check pods", SAMPLE_TOOLS, [])
+        assert decision.action.action == "kubectl:get_pods"
+
+    def test_router_with_history(self):
+        router = _DummyProvider(json.dumps({"actions": ["file-writer:write_file"]}))
+        main = _DummyProvider(json.dumps({"done": True, "summary": "done"}))
+        main.set_router(router)
+
+        history = [{"action": "weather:get_weather", "params": {}, "result": "sunny 25C"}]
+        main.decide("write weather report", SAMPLE_TOOLS, history)
+
+        user_msg = router.last_messages[1]["content"]
+        assert "weather:get_weather" in user_msg
+        assert "sunny" in user_msg
+
+    def test_no_router_passes_all_tools(self):
+        main_response = json.dumps({
+            "done": False,
+            "action": "kubectl:get_pods",
+            "params": {},
+            "reasoning": "check",
+            "confidence": 0.9,
+        })
+        main = _DummyProvider(main_response)
+
+        main.decide("check pods", SAMPLE_TOOLS, [])
+
+        system_msg = main.last_messages[0]["content"]
+        for tool in SAMPLE_TOOLS:
+            assert tool["name"] in system_msg

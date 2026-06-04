@@ -21,6 +21,19 @@ class Decision:
     summary: str = ""
 
 
+_ROUTER_PROMPT = (
+    "You are an action router. Given a goal, available actions, and execution history, "
+    "select ONLY the actions that are relevant for the NEXT step.\n\n"
+    "Respond with ONLY a JSON object:\n"
+    '{"actions": ["action_name_1", "action_name_2"]}\n\n'
+    "Rules:\n"
+    "- Select 1-5 most relevant actions for the immediate next step\n"
+    "- Consider the goal and what has already been done in history\n"
+    "- Include a 'done-like' action if the task might be complete\n"
+    "- Output ONLY valid JSON, no markdown, no explanation\n"
+)
+
+
 _EXTRACTOR_PROMPT = (
     "You are a JSON extraction assistant. "
     "Given the user's raw text, extract and return ONLY a valid JSON object "
@@ -40,11 +53,17 @@ _EXTRACTOR_PROMPT = (
 
 class LLMProvider(ABC):
     _extractor: LLMProvider | None = None
+    _router: LLMProvider | None = None
 
     def set_extractor(self, extractor: LLMProvider) -> None:
         self._extractor = extractor
 
+    def set_router(self, router: LLMProvider) -> None:
+        self._router = router
+
     def decide(self, goal: str, tools: list[dict], history: list[dict]) -> Decision:
+        if self._router is not None:
+            tools = self._route_actions(goal, tools, history)
         messages = self._build_messages(goal, tools, history)
         raw = self._call_llm(messages)
         if self._extractor is not None:
@@ -57,6 +76,34 @@ class LLMProvider(ABC):
             {"role": "user", "content": raw},
         ]
         return self._extractor._call_llm(messages)
+
+    def _route_actions(self, goal: str, tools: list[dict], history: list[dict]) -> list[dict]:
+        action_summary = "\n".join(
+            f"- {t['name']}: {t.get('description', '')}" for t in tools
+        )
+
+        history_text = ""
+        if history:
+            history_text = "\nRecent history:\n" + "\n".join(
+                f"- {h['action']} -> {h['result'][:100]}" for h in history[-3:]
+            )
+
+        messages = [
+            {"role": "system", "content": _ROUTER_PROMPT},
+            {"role": "user", "content": f"Goal: {goal}\n\nAvailable actions:\n{action_summary}{history_text}"},
+        ]
+
+        try:
+            raw = self._router._call_llm(messages)
+            data = _extract_json(raw)
+            selected = set(data.get("actions", []))
+            if selected:
+                filtered = [t for t in tools if t["name"] in selected]
+                if filtered:
+                    return filtered
+        except Exception:
+            pass
+        return tools
 
     @abstractmethod
     def _call_llm(self, messages: list[dict]) -> str:

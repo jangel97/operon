@@ -8,6 +8,9 @@ from operon.agent.spec import (
     ActionsSpec,
     AgentDefinition,
     ApprovalMode,
+    DecisionSpec,
+    ExtractorSpec,
+    RouterSpec,
 )
 
 
@@ -136,3 +139,73 @@ class TestFullSpecParsing:
         defn = AgentDefinition.model_validate(raw)
         assert len(defn.spec.actions.tools) == 1
         assert defn.spec.policy.constraints.max_actions == 10
+
+
+class TestDecisionSpec:
+    def test_temperature_default_none(self):
+        spec = DecisionSpec(type="llm")
+        assert spec.temperature is None
+
+    def test_temperature_set(self):
+        spec = DecisionSpec(type="llm", temperature=0.7)
+        assert spec.temperature == 0.7
+
+    def test_router_default_none(self):
+        spec = DecisionSpec(type="llm")
+        assert spec.router is None
+
+    def test_router_spec(self):
+        spec = DecisionSpec(
+            type="llm",
+            provider="ollama",
+            model="qwen3:14b",
+            router=RouterSpec(model="qwen3:1.7b"),
+        )
+        assert spec.router.model == "qwen3:1.7b"
+        assert spec.router.provider is None
+        assert spec.router.temperature is None
+
+    def test_router_with_temperature(self):
+        spec = DecisionSpec(
+            type="llm",
+            router=RouterSpec(model="small", temperature=0.3),
+        )
+        assert spec.router.temperature == 0.3
+
+    def test_extractor_with_temperature(self):
+        spec = DecisionSpec(
+            type="llm",
+            extractor=ExtractorSpec(model="small", temperature=0.1),
+        )
+        assert spec.extractor.temperature == 0.1
+
+    def test_all_three_layers(self):
+        spec = DecisionSpec(
+            type="llm",
+            provider="ollama",
+            model="qwen3:14b",
+            temperature=0.7,
+            router=RouterSpec(model="qwen3:1.7b", temperature=0.3),
+            extractor=ExtractorSpec(model="qwen3:1.7b", temperature=0.1),
+        )
+        assert spec.temperature == 0.7
+        assert spec.router.model == "qwen3:1.7b"
+        assert spec.router.temperature == 0.3
+        assert spec.extractor.model == "qwen3:1.7b"
+        assert spec.extractor.temperature == 0.1
+
+    def test_from_yaml_dict(self):
+        raw = {
+            "type": "llm",
+            "provider": "ollama",
+            "model": "qwen3:14b",
+            "temperature": 0.5,
+            "router": {"model": "qwen3:1.7b", "temperature": 0.2},
+            "extractor": {"model": "qwen3:1.7b"},
+        }
+        spec = DecisionSpec(**raw)
+        assert spec.temperature == 0.5
+        assert spec.router.model == "qwen3:1.7b"
+        assert spec.router.temperature == 0.2
+        assert spec.extractor.model == "qwen3:1.7b"
+        assert spec.extractor.temperature is None

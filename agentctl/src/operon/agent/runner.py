@@ -37,7 +37,12 @@ class AgentRunner:
         spec = definition.spec
 
         self.console.print(f"[bold]Agent:[/] {definition.metadata.name} ({definition.metadata.version})")
-        self.console.print(f"[bold]Provider:[/] {spec.decision.provider}/{spec.decision.model}")
+        self.console.print(f"[bold]Reasoner:[/] {spec.decision.provider}/{spec.decision.model}")
+        if spec.decision.router:
+            r = spec.decision.router
+            self.console.print(
+                f"[bold]Router:[/] {r.provider or spec.decision.provider}/{r.model}"
+            )
         if spec.decision.extractor:
             ext = spec.decision.extractor
             self.console.print(
@@ -58,19 +63,7 @@ class AgentRunner:
         if resolved_inputs:
             self.console.print(f"[bold]Inputs:[/] {redactor.redact(resolved_inputs)}")
 
-        provider_kwargs = {"model": spec.decision.model}
-        if spec.decision.base_url:
-            provider_kwargs["base_url"] = spec.decision.base_url
-        decision_engine = create_provider(spec.decision.provider, **provider_kwargs)
-
-        if spec.decision.extractor:
-            ext = spec.decision.extractor
-            ext_provider = ext.provider or spec.decision.provider
-            ext_kwargs: dict = {"model": ext.model}
-            ext_base_url = ext.base_url or spec.decision.base_url
-            if ext_base_url:
-                ext_kwargs["base_url"] = ext_base_url
-            decision_engine.set_extractor(create_provider(ext_provider, **ext_kwargs))
+        decision_engine = self._build_decision_engine(spec)
 
         tool_registry = self._build_tool_registry(spec)
         policy_engine = PolicyEngine(spec.policy, tool_registry)
@@ -103,6 +96,38 @@ class AgentRunner:
             else:
                 raise ValueError(f"Missing required input: {name}")
         return resolved
+
+    def _build_decision_engine(self, spec: AgentSpec):
+        provider_kwargs: dict = {"model": spec.decision.model}
+        if spec.decision.base_url:
+            provider_kwargs["base_url"] = spec.decision.base_url
+        if spec.decision.temperature is not None:
+            provider_kwargs["temperature"] = spec.decision.temperature
+        engine = create_provider(spec.decision.provider, **provider_kwargs)
+
+        if spec.decision.router:
+            r = spec.decision.router
+            r_provider = r.provider or spec.decision.provider
+            r_kwargs: dict = {"model": r.model}
+            r_base_url = r.base_url or spec.decision.base_url
+            if r_base_url:
+                r_kwargs["base_url"] = r_base_url
+            if r.temperature is not None:
+                r_kwargs["temperature"] = r.temperature
+            engine.set_router(create_provider(r_provider, **r_kwargs))
+
+        if spec.decision.extractor:
+            ext = spec.decision.extractor
+            ext_provider = ext.provider or spec.decision.provider
+            ext_kwargs: dict = {"model": ext.model}
+            ext_base_url = ext.base_url or spec.decision.base_url
+            if ext_base_url:
+                ext_kwargs["base_url"] = ext_base_url
+            if ext.temperature is not None:
+                ext_kwargs["temperature"] = ext.temperature
+            engine.set_extractor(create_provider(ext_provider, **ext_kwargs))
+
+        return engine
 
     def _build_tool_registry(self, spec: AgentSpec) -> ToolRegistry:
         registry = ToolRegistry()
