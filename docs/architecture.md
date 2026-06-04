@@ -79,6 +79,7 @@ decision:
   model: qwen3:14b
   base_url: http://192.168.1.139:11434/v1
   temperature: 0.7
+  max_history: 5              # trim old history for small-context models
 
   router:
     model: qwen3:1.7b
@@ -89,7 +90,7 @@ decision:
     temperature: 0.1
 ```
 
-Router and extractor inherit `provider` and `base_url` from the top level if not specified. All layers are optional — the simplest config is just `provider` + `model`, which acts as the reasoner.
+Router and extractor inherit `provider` and `base_url` from the top level if not specified. `max_history` limits how many past actions are sent to the LLM — only the most recent N entries are included. All layers are optional — the simplest config is just `provider` + `model`, which acts as the reasoner.
 
 ## Data Flow
 

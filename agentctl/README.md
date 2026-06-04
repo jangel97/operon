@@ -87,18 +87,28 @@ metadata:
   version: v1
 
 spec:
-  # What the agent should accomplish
+  # What the agent should accomplish (supports {{input}} templating)
   goal: |
-    Detect application failures and recover safely.
+    Detect application failures in namespace {{namespace}} and recover safely.
 
   # LLM configuration (supports ${ENV_VAR} interpolation)
   decision:
     type: llm
-    provider: ollama              # ollama or openai
+    provider: ollama                # ollama or openai
     model: qwen3:14b
-    base_url: ${OLLAMA_URL}       # resolved from environment
-    extractor:                    # optional: small model for reliable JSON extraction
-      model: llama3.1:8b
+    base_url: ${OLLAMA_URL}         # resolved from environment
+    temperature: 0.7                # optional, provider default if omitted
+    max_history: 5                  # optional, trim old history for small-context models
+
+    # Optional: cheap model filters relevant tools before the reasoner
+    router:
+      model: qwen3:1.7b
+      temperature: 0.3
+
+    # Optional: cheap model extracts clean JSON from reasoner output
+    extractor:
+      model: qwen3:1.7b
+      temperature: 0.1
 
   # Runtime inputs (override with --set/-e or --set-file)
   inputs:
@@ -107,44 +117,115 @@ spec:
       default: default
     api_token:
       type: string
-      no_log: true                # value redacted from all output
+      no_log: true                  # value redacted from all output
       default: ${API_TOKEN:-}
 
-  # Tools the agent can use (tools define CAPABILITY)
-  tools:
-    - name: kubectl
-      type: kubectl
+  # Tools and collections the agent can use
+  actions:
+    collections:                    # groups of related tools
+      - k8s-readonly
+    tools:                          # individual tools
+      - k8s-pod-reader              # string shorthand
+      - k8s-restarter:              # with per-tool config
+          approval: required
+      - telegram-sender:            # with credential injection
+          approval: required
+          config:
+            bot_token: ${TELEGRAM_BOT_TOKEN}
+            chat_id: ${TELEGRAM_CHAT_ID}
 
-  # Policy — what the agent is allowed to do (policy defines PERMISSIONS)
+  # Safety constraints
   policy:
-    mode: approval_required       # approval_required | autonomous | read_only
-
-    allowed_actions:              # whitelist of permitted actions (namespaced)
-      - kubectl:get_pods
-      - kubectl:describe_pod
-      - kubectl:get_logs
-
     constraints:
-      max_actions: 5              # hard limit on total actions per run
-      denied_patterns: []         # regex patterns to block (defense in depth)
+      max_actions: 5                # hard limit on total actions per run
+      denied_patterns:              # regex patterns to block in params
+        - "rm -rf"
 ```
 
 ### Spec Reference
 
-| Field | Description |
-|-------|-------------|
-| `spec.goal` | Natural language description of what the agent should accomplish |
-| `spec.decision.provider` | LLM provider: `openai` or `ollama` |
-| `spec.decision.model` | Model name (e.g., `gpt-4o-mini`, `qwen3:14b`) |
-| `spec.decision.base_url` | Optional base URL for the LLM API |
-| `spec.decision.extractor` | Optional extractor model for structured JSON extraction (see below) |
-| `spec.inputs` | Key-value inputs with types, optional defaults, and `no_log` |
-| `spec.inputs[].no_log` | When `true`, the input value is redacted from all output |
-| `spec.tools` | List of tool types the agent can use (tools define capability) |
-| `spec.policy.mode` | `approval_required` (human approves each action), `autonomous` (no approval), `read_only` (blocks write operations) |
-| `spec.policy.allowed_actions` | Whitelist of namespaced actions the agent may execute (e.g., `kubectl:get_pods`) |
-| `spec.policy.constraints.max_actions` | Maximum number of actions per run |
-| `spec.policy.constraints.denied_patterns` | Regex patterns to block in command params |
+#### Top Level
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `apiVersion` | string | — | API version (e.g., `agents/v1`) |
+| `kind` | string | — | Resource kind (e.g., `Agent`) |
+| `metadata.name` | string | — | Agent name |
+| `metadata.version` | string | `v1` | Agent version |
+
+#### Decision Engine (`spec.decision`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `type` | string | — | Decision type (`llm`) |
+| `provider` | string | `openai` | LLM provider: `openai` or `ollama` |
+| `model` | string | `gpt-4o-mini` | Model name |
+| `base_url` | string | — | Base URL for the LLM API |
+| `temperature` | float | — | Sampling temperature (provider default if omitted) |
+| `max_history` | int | — | Max history entries sent to the LLM (trims oldest, keeps recent) |
+| `router` | object | — | Optional router layer (see below) |
+| `extractor` | object | — | Optional extractor layer (see below) |
+
+#### Router (`spec.decision.router`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `model` | string | — | Model name (required) |
+| `provider` | string | — | Inherits from `decision.provider` if omitted |
+| `base_url` | string | — | Inherits from `decision.base_url` if omitted |
+| `temperature` | float | — | Sampling temperature |
+
+#### Extractor (`spec.decision.extractor`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `model` | string | — | Model name (required) |
+| `provider` | string | — | Inherits from `decision.provider` if omitted |
+| `base_url` | string | — | Inherits from `decision.base_url` if omitted |
+| `temperature` | float | — | Sampling temperature |
+
+#### Inputs (`spec.inputs`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `type` | string | — | Input type (e.g., `string`) |
+| `default` | any | — | Default value (supports `${ENV_VAR}` interpolation) |
+| `no_log` | bool | `false` | When `true`, value is redacted from all output |
+
+#### Actions (`spec.actions`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `collections` | list | `[]` | Tool collections (groups of related tools) |
+| `tools` | list | `[]` | Individual tools |
+
+Tools can be specified as a string (`"k8s-reader"`) or an object with config:
+
+```yaml
+tools:
+  - k8s-reader                     # shorthand: just the tool type
+  - k8s-restarter:                 # with approval override
+      approval: required
+  - telegram-sender:               # with credential injection
+      approval: required
+      config:
+        bot_token: ${TOKEN}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `tools[].type` | string | — | Tool type name |
+| `tools[].approval` | string | — | `required` or `none` (default: read tools = none, write tools = required) |
+| `tools[].config` | object | `{}` | Credentials/config injected into action params at execution time |
+| `collections[].name` | string | — | Collection name |
+| `collections[].approval` | string | — | Override approval for all tools in the collection |
+
+#### Policy (`spec.policy`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `constraints.max_actions` | int | `10` | Maximum total actions per run |
+| `constraints.denied_patterns` | list | `[]` | Regex patterns — if any match a command param, the action is denied |
 
 ## LLM Providers
 
@@ -176,48 +257,70 @@ export OPENAI_API_KEY=sk-...
 agentctl run agent.yaml
 ```
 
-### Extractor (two-model architecture)
+### Decision Engine (three-layer architecture)
 
-By default, the same model handles both reasoning and structured JSON output. Some models (especially reasoning-focused ones like DeepSeek-R1) produce better results when they can think freely without worrying about output format.
+The decision engine supports three optional layers, each with its own model, provider, and temperature:
 
-The `extractor` option adds a second, small model that converts the main model's raw output into structured JSON. The main model reasons freely, then the extractor reformats the response.
+```
+All Actions → [Router] → Reasoner → [Extractor] → Decision
+```
+
+**Router** (optional): A fast model that receives the goal, action names, and recent history. Returns a subset of relevant actions. Reduces noise when many tools are registered. Falls back to the full list on failure.
+
+**Reasoner** (required): The main model. Receives the goal, actions (filtered or full), and execution history. Decides what to do next.
+
+**Extractor** (optional): A fast model that takes the reasoner's raw output and extracts clean JSON. Useful when the reasoner doesn't reliably produce structured output (e.g., reasoning models like DeepSeek-R1).
 
 ```yaml
 decision:
+  type: llm
   provider: ollama
-  model: deepseek-r1:14b           # reasons freely
-  base_url: http://192.168.1.138:11434/v1
-  extractor:
-    model: llama3.1:8b              # small, fast, reliable JSON output
+  model: qwen3:14b                 # the reasoner
+  base_url: http://192.168.1.139:11434/v1
+  temperature: 0.7
+
+  router:                          # cheap model filters tools
+    model: qwen3:1.7b
+    temperature: 0.3
+
+  extractor:                       # cheap model cleans JSON
+    model: qwen3:1.7b
+    temperature: 0.1
 ```
 
-The extractor inherits `provider` and `base_url` from the parent by default. Override them to use a different provider:
+Router and extractor inherit `provider` and `base_url` from the top level if not specified. Override them to use a different provider:
 
 ```yaml
 decision:
   provider: ollama
   model: qwen3:14b
-  base_url: http://192.168.1.138:11434/v1
+  base_url: http://192.168.1.139:11434/v1
   extractor:
     model: gpt-4o-mini
-    provider: openai                # uses OpenAI for extraction
+    provider: openai               # uses OpenAI for extraction
 ```
 
-| Field | Description |
-|-------|-------------|
-| `extractor.model` | Model name for the extractor (required) |
-| `extractor.provider` | Provider override (defaults to parent's provider) |
-| `extractor.base_url` | Base URL override (defaults to parent's base_url) |
+All layers are optional — the simplest config is just `provider` + `model`, which acts as the reasoner with direct JSON parsing.
 
-If `extractor` is omitted, the agent works exactly as before — the main model handles everything.
+### History Trimming
+
+For small-context models, `max_history` limits how many past actions are sent to the LLM. Only the most recent N entries are included; older ones are summarized as `[N earlier actions omitted]`.
+
+```yaml
+decision:
+  model: qwen3:1.7b
+  max_history: 5                   # only send the last 5 actions
+```
+
+If omitted, all history is sent.
 
 ## Credentials
 
-Credentials in Operon live at two levels. The agent spec never passes credentials to tools — each tool manages its own authentication independently.
+Credentials in Operon live at two levels:
 
-### Tool credentials (authentication)
+### System credentials (plugin tools)
 
-Tools consume their own credentials. The agent and the LLM never see them.
+Plugin tools (pip packages) manage their own authentication. The agent spec doesn't know about these.
 
 | Tool | Credential source | Setup |
 |------|-------------------|-------|
@@ -225,9 +328,22 @@ Tools consume their own credentials. The agent and the LLM never see them.
 | `github` | `gh` CLI auth state | `gh auth login` |
 | `websearch` | None (public API) | — |
 
-This is a security boundary: tool credentials are resolved at execution time by the tool itself, using standard system-level mechanisms (config files, environment variables, CLI auth state). The LLM decides **what** to do; the tool decides **how** to authenticate. The agent spec has no `credentials` field and no way to inject auth into a tool.
+The LLM decides **what** to do; the tool decides **how** to authenticate.
 
-When creating a custom tool, handle authentication in your `execute()` method using whatever mechanism is appropriate (environment variables, config files, token files). The runtime will not pass credentials to you.
+### Config injection (module tools)
+
+Module tools receive credentials via the `config` field in the agent spec. Config values are resolved from `${ENV_VAR}` at load time, merged into action params at execution time, and automatically redacted from all output.
+
+```yaml
+actions:
+  tools:
+    - telegram-sender:
+        config:
+          bot_token: ${TELEGRAM_BOT_TOKEN}
+          chat_id: ${TELEGRAM_CHAT_ID}
+```
+
+The LLM never sees config values — they're injected after the LLM makes its decision.
 
 ### Agent-level interpolation (configuration)
 
@@ -381,17 +497,7 @@ curl http://localhost:8080/api/v1/runs/a1b2c3d4e5f6
 curl http://localhost:8080/api/v1/runs/a1b2c3d4e5f6/events
 ```
 
-Runs execute in background threads. The API returns `202 Accepted` immediately with a `run_id` for polling or SSE streaming. Use `autonomous` or `read_only` policy modes — `approval_required` is designed for interactive CLI use.
-
-## Policy Modes
-
-| Mode | Behavior |
-|------|----------|
-| `approval_required` | Every action requires human approval (y/n prompt) |
-| `autonomous` | Actions execute without approval |
-| `read_only` | Blocks write operations, allows read-only actions |
-
-Tools tag their operations as `read` or `write`. The policy engine enforces this automatically — a `read_only` agent can never execute a write operation, regardless of what the LLM decides.
+Runs execute in background threads. The API returns `202 Accepted` immediately with a `run_id` for polling or SSE streaming. Set `approval: none` on tools to avoid interactive approval prompts.
 
 ## Architecture
 
@@ -460,23 +566,19 @@ Once installed, agentctl discovers it automatically — no configuration needed.
 
 ### Namespaced actions
 
-Actions are namespaced as `tool:operation`. Tools define **capability** (what operations exist), policy defines **permissions** as defense-in-depth.
+Actions are namespaced as `tool:operation`. The LLM sees action names like `k8s-pod-reader:get_pods` and picks from the available list.
 
 ```yaml
-tools:
-  - name: k8s-reader
-    type: k8s-reader
-
-policy:
-  allowed_actions:
-    - k8s-reader:get_pods
-    - k8s-reader:describe_pod
-    - k8s-reader:get_logs
+actions:
+  tools:
+    - k8s-pod-reader
+    - k8s-restarter:
+        approval: required
 ```
 
 The LLM decides:
 ```json
-{"action": "k8s-reader:get_pods", "params": {"namespace": "production"}}
+{"action": "k8s-pod-reader:get_pods", "params": {"namespace": "production"}}
 ```
 
 The tool executes: `kubectl get pods -n production -o json`
@@ -557,9 +659,9 @@ pip install -e .
 ```
 
 ```yaml
-tools:
-  - name: aws-ec2-reader
-    type: aws-ec2-reader
+actions:
+  tools:
+    - aws-ec2-reader
 ```
 
 agentctl will discover it on next run. No changes to agentctl code needed.
@@ -601,9 +703,10 @@ The test suite covers the safety-critical components with no external dependenci
 
 | Test file | What it covers |
 |-----------|----------------|
-| `test_policy_engine.py` | All three policy modes, allowed actions, max actions, denied patterns, write escalation, check evaluation order |
+| `test_policy_engine.py` | Per-tool approval, max actions, denied patterns, write default escalation, check evaluation order |
 | `test_extract_json.py` | Clean JSON, code fences, surrounding text, garbage fallback, edge cases |
-| `test_tool_registry.py` | Namespacing, allowed filtering, policy mode filtering, metadata, execution routing |
+| `test_tool_registry.py` | Namespacing, approval, config injection, metadata, execution routing |
 | `test_github_tool.py` | Action schema, validation, command building, error handling, coercion, registry integration |
-| `test_extractor.py` | Two-model architecture: spec parsing, extractor wiring, prompt construction, fallback handling |
+| `test_extractor.py` | Decision engine: extractor, router, max_history, prompt construction, fallback handling |
+| `test_spec_parsing.py` | Spec parsing: tools, collections, approval, config, decision layers, temperature, max_history |
 | `test_api_server.py` | API server: endpoints, run lifecycle, SSE streaming, in-memory state store |
