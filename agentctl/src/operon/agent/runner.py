@@ -127,6 +127,9 @@ class AgentRunner:
                 ext_kwargs["temperature"] = ext.temperature
             engine.set_extractor(create_provider(ext_provider, **ext_kwargs))
 
+        if spec.decision.max_history is not None:
+            engine.set_max_history(spec.decision.max_history)
+
         return engine
 
     def _build_tool_registry(self, spec: AgentSpec) -> ToolRegistry:

@@ -54,12 +54,16 @@ _EXTRACTOR_PROMPT = (
 class LLMProvider(ABC):
     _extractor: LLMProvider | None = None
     _router: LLMProvider | None = None
+    _max_history: int | None = None
 
     def set_extractor(self, extractor: LLMProvider) -> None:
         self._extractor = extractor
 
     def set_router(self, router: LLMProvider) -> None:
         self._router = router
+
+    def set_max_history(self, max_history: int | None) -> None:
+        self._max_history = max_history
 
     def decide(self, goal: str, tools: list[dict], history: list[dict]) -> Decision:
         if self._router is not None:
@@ -148,13 +152,20 @@ class LLMProvider(ABC):
                 "content": "Begin execution. Analyze the situation and decide the first action.",
             })
         else:
+            visible = history
+            if self._max_history is not None and len(history) > self._max_history:
+                visible = history[-self._max_history:]
+                omitted = len(history) - self._max_history
+                prefix = f"[{omitted} earlier actions omitted]\n"
+            else:
+                prefix = ""
             history_text = "\n".join(
                 f"- {h['action']}({json.dumps(h['params'])}) -> {h['result']}"
-                for h in history
+                for h in visible
             )
             messages.append({
                 "role": "user",
-                "content": f"Execution history:\n{history_text}\n\nDecide the next action or declare done.",
+                "content": f"Execution history:\n{prefix}{history_text}\n\nDecide the next action or declare done.",
             })
 
         return messages

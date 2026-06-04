@@ -317,6 +317,14 @@ class TestRouter:
         assert "weather:get_weather" in user_msg
         assert "sunny" in user_msg
 
+    def test_router_not_shared_between_instances(self):
+        a = _DummyProvider("a")
+        b = _DummyProvider("b")
+        router = _DummyProvider("r")
+        a.set_router(router)
+        assert a._router is router
+        assert b._router is None
+
     def test_no_router_passes_all_tools(self):
         main_response = json.dumps({
             "done": False,
@@ -332,3 +340,69 @@ class TestRouter:
         system_msg = main.last_messages[0]["content"]
         for tool in SAMPLE_TOOLS:
             assert tool["name"] in system_msg
+
+
+class TestMaxHistory:
+    def test_set_max_history(self):
+        provider = _DummyProvider(json.dumps({"done": True, "summary": "done"}))
+        assert provider._max_history is None
+        provider.set_max_history(3)
+        assert provider._max_history == 3
+
+    def test_no_trimming_when_unset(self):
+        provider = _DummyProvider(json.dumps({"done": True, "summary": "done"}))
+        history = [
+            {"action": f"a{i}", "params": {}, "result": f"r{i}"}
+            for i in range(10)
+        ]
+        provider.decide("goal", [], history)
+        user_msg = provider.last_messages[1]["content"]
+        assert "a0" in user_msg
+        assert "a9" in user_msg
+        assert "omitted" not in user_msg
+
+    def test_trimming_keeps_recent(self):
+        provider = _DummyProvider(json.dumps({"done": True, "summary": "done"}))
+        provider.set_max_history(3)
+        history = [
+            {"action": f"a{i}", "params": {}, "result": f"r{i}"}
+            for i in range(10)
+        ]
+        provider.decide("goal", [], history)
+        user_msg = provider.last_messages[1]["content"]
+        assert "a0" not in user_msg
+        assert "a6" not in user_msg
+        assert "a7" in user_msg
+        assert "a8" in user_msg
+        assert "a9" in user_msg
+
+    def test_trimming_shows_omitted_count(self):
+        provider = _DummyProvider(json.dumps({"done": True, "summary": "done"}))
+        provider.set_max_history(2)
+        history = [
+            {"action": f"a{i}", "params": {}, "result": f"r{i}"}
+            for i in range(5)
+        ]
+        provider.decide("goal", [], history)
+        user_msg = provider.last_messages[1]["content"]
+        assert "[3 earlier actions omitted]" in user_msg
+
+    def test_no_trimming_when_under_limit(self):
+        provider = _DummyProvider(json.dumps({"done": True, "summary": "done"}))
+        provider.set_max_history(10)
+        history = [
+            {"action": f"a{i}", "params": {}, "result": f"r{i}"}
+            for i in range(3)
+        ]
+        provider.decide("goal", [], history)
+        user_msg = provider.last_messages[1]["content"]
+        assert "a0" in user_msg
+        assert "a2" in user_msg
+        assert "omitted" not in user_msg
+
+    def test_max_history_none_resets(self):
+        provider = _DummyProvider(json.dumps({"done": True, "summary": "done"}))
+        provider.set_max_history(3)
+        assert provider._max_history == 3
+        provider.set_max_history(None)
+        assert provider._max_history is None

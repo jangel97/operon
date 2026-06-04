@@ -209,3 +209,21 @@ class TestDecisionSpec:
         assert spec.router.temperature == 0.2
         assert spec.extractor.model == "qwen3:1.7b"
         assert spec.extractor.temperature is None
+
+    def test_max_history_default_none(self):
+        spec = DecisionSpec(type="llm")
+        assert spec.max_history is None
+
+    def test_max_history_set(self):
+        spec = DecisionSpec(type="llm", max_history=5)
+        assert spec.max_history == 5
+
+    def test_max_history_from_yaml_dict(self):
+        raw = {
+            "type": "llm",
+            "provider": "ollama",
+            "model": "qwen3:14b",
+            "max_history": 3,
+        }
+        spec = DecisionSpec(**raw)
+        assert spec.max_history == 3

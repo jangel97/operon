@@ -31,6 +31,7 @@ class DecisionSpec(BaseModel):
     model: str = "gpt-4o-mini"
     base_url: str | None = None
     temperature: float | None = None
+    max_history: int | None = None
     router: RouterSpec | None = None
     extractor: ExtractorSpec | None = None
 
